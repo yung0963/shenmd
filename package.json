@@ -1,0 +1,50 @@
+{
+  "name": "shenMD",
+  "version": "1.0.0",
+  "description": "A powerful Markdown editor for macOS",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "dist": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.shenmb.shenmd",
+    "productName": "shenMD",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        }
+      ]
+    },
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mdown", "mkd", "mkdn"],
+        "name": "Markdown Document",
+        "role": "Editor"
+      },
+      {
+        "ext": ["csv"],
+        "name": "CSV Document",
+        "role": "Editor"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "keywords": ["markdown", "editor", "macos"],
+  "author": "shenmb"
+}
