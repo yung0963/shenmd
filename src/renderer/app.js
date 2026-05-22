@@ -60,6 +60,7 @@ const statChars      = document.getElementById('stat-chars');
 const statFile       = document.getElementById('stat-file');
 const sidebar        = document.getElementById('sidebar');
 const openDirBtn     = document.getElementById('openDirBtn');
+const refreshDirBtn  = document.getElementById('refreshDirBtn');
 const fileList       = document.getElementById('file-list');
 const dirNameEl      = document.getElementById('dir-name');
 const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
@@ -84,6 +85,7 @@ let currentFileType = 'markdown';
 let currentFileExt  = '';
 let isModified = false;
 let activeFileItem = null;
+let suppressWatchReloadUntil = 0;
 
 // ========== 字型大小 ==========
 const LS_FONT_SIZE = 'md_font_size';
@@ -331,8 +333,9 @@ async function readFileText(filePath, ext, encodingOverride = 'auto') {
 }
 
 // ========== 開啟檔案 ==========
-async function openFile(filePath) {
+async function openFile(filePath, options = {}) {
     try {
+        const { silent = false, skipWatch = false } = options;
         const ext = filePath.split('.').pop().toLowerCase();
         const text = await readFileText(filePath, ext, csvEncodingSelect.value);
         currentFilePath = filePath;
@@ -343,8 +346,14 @@ async function openFile(filePath) {
         editor.value = text;
         await updatePreview();
         statFile.textContent = await window.electronAPI.pathBasename(filePath);
-        showSaveToast('已開啟 ' + pathBasename(filePath));
+        if (!silent) showSaveToast('已開啟 ' + pathBasename(filePath));
         setModified(false);
+        if (!skipWatch) {
+            const watchResult = await window.electronAPI.watchCurrentFile(filePath);
+            if (!watchResult?.success) {
+                console.warn('監聽檔案失敗:', watchResult?.error);
+            }
+        }
         // 若側邊欄已開啟同目錄，更新 active
         if (rootDirPath && currentDirPath && currentDirPath.startsWith(rootDirPath)) {
             highlightFileInTree(filePath);
@@ -360,8 +369,9 @@ function pathBasename(fp) {
 }
 
 function highlightFileInTree(filePath) {
-    // 簡化：重新渲染目錄樹來同步 active 狀態
-    // 實際上可優化，目前先不做複雜同步
+    if (activeFileItem) activeFileItem.classList.remove('active');
+    activeFileItem = fileList.querySelector(`[data-path="${CSS.escape(filePath)}"]`);
+    if (activeFileItem) activeFileItem.classList.add('active');
 }
 
 function updateExportButtons() {
@@ -395,8 +405,10 @@ async function saveCurrentFile() {
         return;
     }
     try {
+        suppressWatchReloadUntil = Date.now() + 1500;
         const result = await window.electronAPI.writeFile(currentFilePath, editor.value);
         if (result.success) {
+            await window.electronAPI.watchCurrentFile(currentFilePath);
             showSaveToast('已儲存');
             setModified(false);
         } else {
@@ -442,6 +454,7 @@ function newFile() {
     statFile.textContent = '未命名';
     setModified(false);
     updateExportButtons();
+    window.electronAPI.unwatchCurrentFile();
 }
 
 // ========== 側邊欄 / 資料夾瀏覽 ==========
@@ -450,12 +463,35 @@ async function openDirectory(dirPath) {
         rootDirPath = dirPath;
         dirNameEl.textContent = '📁 ' + pathBasename(dirPath);
         dirNameEl.classList.remove('hidden');
-        fileList.innerHTML = '';
         filePrompt.classList.add('hidden');
-        await renderDirectory(dirPath, fileList, 0);
+        await refreshDirectory();
     } catch (e) {
         console.error('開啟資料夾失敗:', e);
     }
+}
+
+async function refreshDirectory() {
+    if (!rootDirPath) {
+        showSaveToast('請先開啟資料夾');
+        return;
+    }
+    fileList.innerHTML = '';
+    activeFileItem = null;
+    await renderDirectory(rootDirPath, fileList, 0);
+    if (currentFilePath) highlightFileInTree(currentFilePath);
+    showSaveToast('檔案列表已刷新');
+}
+
+async function reloadCurrentFileFromDisk(options = {}) {
+    const { force = false, notify = true } = options;
+    if (!currentFilePath) return false;
+    if (isModified && !force) {
+        if (notify) showSaveToast('目前檔案有未儲存修改，未自動重載');
+        return false;
+    }
+    await openFile(currentFilePath, { silent: true });
+    if (notify) showSaveToast('目前檔案已重新整理');
+    return true;
 }
 
 async function renderDirectory(dirPath, container, depth) {
@@ -463,6 +499,7 @@ async function renderDirectory(dirPath, container, depth) {
     if (!result.success) { console.error(result.error); return; }
     const entries = result.list;
     for (const entry of entries) {
+        const entryPath = await window.electronAPI.pathJoin(dirPath, entry.name);
         if (entry.isDirectory) {
             const dirItem = document.createElement('div');
             dirItem.className = 'file-item is-dir';
@@ -477,8 +514,7 @@ async function renderDirectory(dirPath, container, depth) {
                 if (isOpen) { childContainer.style.display='none'; arrow.classList.remove('open'); }
                 else {
                     if (!loaded) {
-                        const childPath = await window.electronAPI.pathJoin(dirPath, entry.name);
-                        await renderDirectory(childPath, childContainer, 0);
+                        await renderDirectory(entryPath, childContainer, depth + 1);
                         loaded = true;
                     }
                     childContainer.style.display = 'block'; arrow.classList.add('open');
@@ -490,10 +526,10 @@ async function renderDirectory(dirPath, container, depth) {
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
             fileItem.style.paddingLeft = (12 + depth * 14) + 'px';
+            fileItem.dataset.path = entryPath;
             fileItem.innerHTML = `${getFileIcon(ext)}<span class="truncate" title="${entry.name}">${entry.name}</span>`;
             fileItem.addEventListener('click', async () => {
-                const fp = await window.electronAPI.pathJoin(dirPath, entry.name);
-                await openFile(fp);
+                await openFile(entryPath);
                 if (activeFileItem) activeFileItem.classList.remove('active');
                 fileItem.classList.add('active'); activeFileItem = fileItem;
             });
@@ -512,6 +548,12 @@ openDirBtn.addEventListener('click', async () => {
     const result = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] });
     if (!result.canceled && result.filePaths.length > 0) {
         await openDirectory(result.filePaths[0]);
+    }
+});
+refreshDirBtn.addEventListener('click', async () => {
+    await refreshDirectory();
+    if (currentFilePath) {
+        await reloadCurrentFileFromDisk({ notify: true });
     }
 });
 filePromptBtn.addEventListener('click', async () => {
@@ -1109,8 +1151,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async () => {
     if (typeof docx === 'undefined') { alert('docx 尚未載入'); return; }
     const defaultName = (statFile.textContent && statFile.textContent !== '未開啟檔案')
         ? statFile.textContent.replace(/\.[^.]+$/, '') : 'Document';
-    const filename = (prompt('請輸入檔案名稱', defaultName) || defaultName).trim();
-    if (!filename) return;
+    const filename = defaultName.trim() || 'Document';
     const wordBtn = document.getElementById('exportWordBtn');
     wordBtn.disabled = true;
     wordBtn.textContent = '匯出中...';
@@ -1264,6 +1305,11 @@ window.electronAPI.onSetViewMode(mode => setViewMode(mode));
 window.electronAPI.onFontSizeChange(delta => {
     const newSize = fontSize + delta;
     if (newSize >= 10 && newSize <= 22) { fontSize = newSize; applyFontSize(); }
+});
+window.electronAPI.onWatchedFileChanged(async ({ filePath }) => {
+    if (!currentFilePath || filePath !== currentFilePath) return;
+    if (Date.now() < suppressWatchReloadUntil) return;
+    await reloadCurrentFileFromDisk({ notify: true });
 });
 
 // 嘗試載入最近檔案列表（側邊欄提示用，可擴展）

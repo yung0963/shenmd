@@ -6,9 +6,52 @@ const os = require('os');
 
 let mainWindow;
 let recentFiles = [];
+let recentFilesLoaded = false;
+let pendingOpenFilePath = null;
+let currentFileWatcher = null;
+let currentWatchedFilePath = null;
+let currentWatcherTimer = null;
 const MAX_RECENT = 15;
 const RECENT_FILE = path.join(app.getPath('userData'), 'recent.json');
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
+
+function stopWatchingCurrentFile() {
+  if (currentWatcherTimer) {
+    clearTimeout(currentWatcherTimer);
+    currentWatcherTimer = null;
+  }
+  if (currentFileWatcher) {
+    currentFileWatcher.close();
+    currentFileWatcher = null;
+  }
+  currentWatchedFilePath = null;
+}
+
+function notifyWatchedFileChanged(filePath, reason = 'change') {
+  if (!mainWindow || !filePath) return;
+  mainWindow.webContents.send('watched-file-changed', { filePath, reason });
+}
+
+function startWatchingCurrentFile(filePath) {
+  stopWatchingCurrentFile();
+  if (!filePath) return { success: true };
+
+  currentWatchedFilePath = filePath;
+
+  try {
+    currentFileWatcher = fsSync.watch(filePath, { persistent: false }, (eventType) => {
+      if (currentWatcherTimer) clearTimeout(currentWatcherTimer);
+      currentWatcherTimer = setTimeout(() => {
+        if (!currentWatchedFilePath) return;
+        notifyWatchedFileChanged(currentWatchedFilePath, eventType || 'change');
+      }, 120);
+    });
+    return { success: true };
+  } catch (e) {
+    stopWatchingCurrentFile();
+    return { success: false, error: e.message };
+  }
+}
 
 // 載入最近開啟
 async function loadRecentFiles() {
@@ -19,6 +62,7 @@ async function loadRecentFiles() {
   } catch (e) {
     recentFiles = [];
   }
+  recentFilesLoaded = true;
 }
 
 async function saveRecentFiles() {
@@ -29,6 +73,7 @@ async function saveRecentFiles() {
 
 async function addRecentFile(filePath) {
   if (!filePath) return;
+  if (!recentFilesLoaded) await loadRecentFiles();
   recentFiles = recentFiles.filter(f => f !== filePath);
   recentFiles.unshift(filePath);
   if (recentFiles.length > MAX_RECENT) recentFiles = recentFiles.slice(0, MAX_RECENT);
@@ -36,6 +81,20 @@ async function addRecentFile(filePath) {
   app.addRecentDocument(filePath);
   updateMenu();
   if (mainWindow) mainWindow.webContents.send('recent-files-updated', recentFiles);
+}
+
+function flushPendingOpenFile() {
+  if (!mainWindow || !pendingOpenFilePath || mainWindow.webContents.isLoading()) return;
+  const filePath = pendingOpenFilePath;
+  pendingOpenFilePath = null;
+  mainWindow.webContents.send('open-file', filePath);
+}
+
+function queueOpenFile(filePath) {
+  if (!filePath) return;
+  pendingOpenFilePath = filePath;
+  addRecentFile(filePath);
+  flushPendingOpenFile();
 }
 
 function createWindow() {
@@ -60,6 +119,8 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  mainWindow.webContents.once('did-finish-load', flushPendingOpenFile);
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     if (settings.maximized) mainWindow.maximize();
@@ -71,6 +132,7 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    stopWatchingCurrentFile();
     mainWindow = null;
   });
 
@@ -418,6 +480,15 @@ ipcMain.handle('read-clipboard-image', () => {
   }
 });
 
+ipcMain.handle('watch-current-file', async (event, filePath) => {
+  return startWatchingCurrentFile(filePath);
+});
+
+ipcMain.handle('unwatch-current-file', async () => {
+  stopWatchingCurrentFile();
+  return { success: true };
+});
+
 // App events
 app.whenReady().then(async () => {
   await loadRecentFiles();
@@ -436,14 +507,7 @@ app.on('window-all-closed', () => {
 // Dock open-file
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  addRecentFile(filePath);
-  if (mainWindow) {
-    mainWindow.webContents.send('open-file', filePath);
-  } else {
-    app.whenReady().then(() => {
-      if (mainWindow) mainWindow.webContents.send('open-file', filePath);
-    });
-  }
+  queueOpenFile(filePath);
 });
 
 app.on('will-finish-launching', () => {});

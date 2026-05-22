@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Clipboard
   readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image'),
+  watchCurrentFile: (filePath) => ipcRenderer.invoke('watch-current-file', filePath),
+  unwatchCurrentFile: () => ipcRenderer.invoke('unwatch-current-file'),
 
   // Events from main
   onOpenFile: (callback) => ipcRenderer.on('open-file', (event, filePath) => callback(filePath)),
@@ -46,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSetViewMode: (callback) => ipcRenderer.on('set-view-mode', (event, mode) => callback(mode)),
   onFontSizeChange: (callback) => ipcRenderer.on('font-size-change', (event, delta) => callback(delta)),
   onRecentFilesUpdated: (callback) => ipcRenderer.on('recent-files-updated', (event, files) => callback(files)),
+  onWatchedFileChanged: (callback) => ipcRenderer.on('watched-file-changed', (event, payload) => callback(payload)),
 
   // Remove listeners (cleanup)
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
