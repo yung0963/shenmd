@@ -8,23 +8,23 @@ let mainWindow;
 let recentFiles = [];
 let recentFilesLoaded = false;
 let pendingOpenFilePath = null;
-let currentFileWatcher = null;
-let currentWatchedFilePath = null;
-let currentWatcherTimer = null;
+const fileWatchers = new Map();
 const MAX_RECENT = 15;
 const RECENT_FILE = path.join(app.getPath('userData'), 'recent.json');
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 
-function stopWatchingCurrentFile() {
-  if (currentWatcherTimer) {
-    clearTimeout(currentWatcherTimer);
-    currentWatcherTimer = null;
+function stopWatchingCurrentFile(filePath) {
+  if (!filePath) {
+    for (const watchedFilePath of [...fileWatchers.keys()]) {
+      stopWatchingCurrentFile(watchedFilePath);
+    }
+    return;
   }
-  if (currentFileWatcher) {
-    currentFileWatcher.close();
-    currentFileWatcher = null;
-  }
-  currentWatchedFilePath = null;
+  const watcherState = fileWatchers.get(filePath);
+  if (!watcherState) return;
+  if (watcherState.timer) clearTimeout(watcherState.timer);
+  watcherState.watcher.close();
+  fileWatchers.delete(filePath);
 }
 
 function notifyWatchedFileChanged(filePath, reason = 'change') {
@@ -33,22 +33,22 @@ function notifyWatchedFileChanged(filePath, reason = 'change') {
 }
 
 function startWatchingCurrentFile(filePath) {
-  stopWatchingCurrentFile();
   if (!filePath) return { success: true };
-
-  currentWatchedFilePath = filePath;
+  if (fileWatchers.has(filePath)) return { success: true };
 
   try {
-    currentFileWatcher = fsSync.watch(filePath, { persistent: false }, (eventType) => {
-      if (currentWatcherTimer) clearTimeout(currentWatcherTimer);
-      currentWatcherTimer = setTimeout(() => {
-        if (!currentWatchedFilePath) return;
-        notifyWatchedFileChanged(currentWatchedFilePath, eventType || 'change');
+    const watcherState = { watcher: null, timer: null };
+    watcherState.watcher = fsSync.watch(filePath, { persistent: false }, (eventType) => {
+      if (watcherState.timer) clearTimeout(watcherState.timer);
+      watcherState.timer = setTimeout(() => {
+        if (!fileWatchers.has(filePath)) return;
+        notifyWatchedFileChanged(filePath, eventType || 'change');
       }, 120);
     });
+    fileWatchers.set(filePath, watcherState);
     return { success: true };
   } catch (e) {
-    stopWatchingCurrentFile();
+    stopWatchingCurrentFile(filePath);
     return { success: false, error: e.message };
   }
 }
@@ -84,7 +84,7 @@ async function addRecentFile(filePath) {
 }
 
 function flushPendingOpenFile() {
-  if (!mainWindow || !pendingOpenFilePath || mainWindow.webContents.isLoading()) return;
+  if (!mainWindow || !pendingOpenFilePath) return;
   const filePath = pendingOpenFilePath;
   pendingOpenFilePath = null;
   mainWindow.webContents.send('open-file', filePath);
@@ -202,18 +202,6 @@ function updateMenu() {
               const fp = result.filePaths[0];
               addRecentFile(fp);
               if (mainWindow) mainWindow.webContents.send('open-file', fp);
-            }
-          }
-        },
-        {
-          label: '開啟資料夾…',
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: async () => {
-            const result = await dialog.showOpenDialog(mainWindow, {
-              properties: ['openDirectory']
-            });
-            if (!result.canceled && result.filePaths.length > 0) {
-              if (mainWindow) mainWindow.webContents.send('open-directory', result.filePaths[0]);
             }
           }
         },
@@ -484,8 +472,8 @@ ipcMain.handle('watch-current-file', async (event, filePath) => {
   return startWatchingCurrentFile(filePath);
 });
 
-ipcMain.handle('unwatch-current-file', async () => {
-  stopWatchingCurrentFile();
+ipcMain.handle('unwatch-current-file', async (event, filePath) => {
+  stopWatchingCurrentFile(filePath);
   return { success: true };
 });
 

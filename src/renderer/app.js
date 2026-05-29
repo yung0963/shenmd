@@ -58,12 +58,6 @@ const statWords      = document.getElementById('stat-words');
 const statLines      = document.getElementById('stat-lines');
 const statChars      = document.getElementById('stat-chars');
 const statFile       = document.getElementById('stat-file');
-const sidebar        = document.getElementById('sidebar');
-const openDirBtn     = document.getElementById('openDirBtn');
-const refreshDirBtn  = document.getElementById('refreshDirBtn');
-const fileList       = document.getElementById('file-list');
-const dirNameEl      = document.getElementById('dir-name');
-const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
 const fontIncBtn     = document.getElementById('fontIncBtn');
 const fontDecBtn     = document.getElementById('fontDecBtn');
 const fontSizeLabel  = document.getElementById('fontSizeLabel');
@@ -74,18 +68,154 @@ const exportExcelBtn = document.getElementById('exportExcelBtn');
 const editorPanel    = document.getElementById('editor-panel');
 const previewPanel   = document.getElementById('preview-panel');
 const dragOverlay    = document.getElementById('drag-overlay');
-const filePrompt     = document.getElementById('file-prompt');
-const filePromptBtn  = document.getElementById('file-prompt-btn');
+const tabsList       = document.getElementById('tabs-list');
+const newTabBtn      = document.getElementById('newTabBtn');
 
 // ========== 狀態 ==========
 let currentFilePath = null;   // 目前開啟的檔案絕對路徑
 let currentDirPath  = null;   // 目前檔案所在目錄
-let rootDirPath     = null;   // 側邊欄根目錄
 let currentFileType = 'markdown';
 let currentFileExt  = '';
 let isModified = false;
-let activeFileItem = null;
 let suppressWatchReloadUntil = 0;
+let activeTabId = null;
+let nextTabId = 1;
+const tabs = [];
+
+function scheduleAutoSave() {}
+
+function createTabState(overrides = {}) {
+    return {
+        id: `tab-${nextTabId++}`,
+        filePath: null,
+        dirPath: null,
+        fileType: 'markdown',
+        fileExt: '',
+        isModified: false,
+        content: '',
+        title: '未命名',
+        csvEncoding: csvEncodingSelect.value || 'auto',
+        externalChanged: false,
+        ...overrides,
+    };
+}
+
+function getActiveTab() {
+    return tabs.find(tab => tab.id === activeTabId) || null;
+}
+
+function updateTabTitle(tab) {
+    tab.title = tab.filePath ? pathBasename(tab.filePath) : '未命名';
+}
+
+function renderTabs() {
+    tabsList.innerHTML = '';
+    tabs.forEach(tab => {
+        const tabEl = document.createElement('button');
+        tabEl.className = 'tab-item' + (tab.id === activeTabId ? ' active' : '');
+        tabEl.dataset.tabId = tab.id;
+        tabEl.innerHTML = `
+            ${tab.isModified ? '<span class="tab-dot"></span>' : '<span class="w-2 h-2 flex-shrink-0"></span>'}
+            <span class="tab-title" title="${escapeHtml(tab.title)}">${escapeHtml(tab.title)}</span>
+            <span class="tab-close-btn" data-close-tab="${tab.id}" title="關閉分頁">×</span>
+        `;
+        tabsList.appendChild(tabEl);
+    });
+}
+
+function syncEditorToActiveTab() {
+    const tab = getActiveTab();
+    if (!tab) return;
+    tab.content = editor.value;
+    tab.csvEncoding = csvEncodingSelect.value;
+}
+
+function applyTabToEditor(tab) {
+    if (!tab) return;
+    currentFilePath = tab.filePath;
+    currentDirPath = tab.dirPath;
+    currentFileType = tab.fileType;
+    currentFileExt = tab.fileExt;
+    isModified = tab.isModified;
+    editor.value = tab.content;
+    csvEncodingSelect.value = tab.csvEncoding || 'auto';
+    statFile.textContent = tab.title;
+    updateExportButtons();
+    setModified(tab.isModified, { skipTabSync: true, silentTitle: true });
+}
+
+async function refreshActiveTabView() {
+    const tab = getActiveTab();
+    if (!tab) return;
+    applyTabToEditor(tab);
+    await updatePreview();
+    setModified(tab.isModified, { skipTabSync: true });
+    renderTabs();
+}
+
+async function activateTab(tabId) {
+    if (activeTabId === tabId) return;
+    syncEditorToActiveTab();
+    activeTabId = tabId;
+    const tab = getActiveTab();
+    if (!tab) return;
+    if (tab.externalChanged && !tab.isModified && tab.filePath) {
+        await reloadTabFromDisk(tab, { notify: false });
+        tab.externalChanged = false;
+    }
+    await refreshActiveTabView();
+}
+
+function ensureAtLeastOneTab() {
+    if (tabs.length > 0) return;
+    const tab = createTabState({ content: defaultMarkdown });
+    updateTabTitle(tab);
+    tabs.push(tab);
+    activeTabId = tab.id;
+}
+
+async function createUntitledTab() {
+    syncEditorToActiveTab();
+    const tab = createTabState({ content: '' });
+    updateTabTitle(tab);
+    tabs.push(tab);
+    activeTabId = tab.id;
+    await refreshActiveTabView();
+}
+
+async function closeTab(tabId) {
+    const idx = tabs.findIndex(tab => tab.id === tabId);
+    if (idx === -1) return;
+    const tab = tabs[idx];
+    if (tab.isModified && !confirm(`分頁「${tab.title}」尚未儲存，確定要關閉？`)) return;
+    if (tab.filePath) await window.electronAPI.unwatchCurrentFile(tab.filePath);
+    tabs.splice(idx, 1);
+    if (!tabs.length) {
+        const freshTab = createTabState({ content: '' });
+        updateTabTitle(freshTab);
+        tabs.push(freshTab);
+    }
+    if (activeTabId === tabId) {
+        const nextTab = tabs[Math.max(0, idx - 1)] || tabs[0];
+        await activateTab(nextTab.id);
+    } else {
+        renderTabs();
+    }
+}
+
+tabsList.addEventListener('click', async (e) => {
+    const closeId = e.target.closest('[data-close-tab]')?.dataset.closeTab;
+    if (closeId) {
+        e.stopPropagation();
+        await closeTab(closeId);
+        return;
+    }
+    const tabId = e.target.closest('[data-tab-id]')?.dataset.tabId;
+    if (tabId) await activateTab(tabId);
+});
+newTabBtn.addEventListener('click', async () => {
+    await createUntitledTab();
+});
 
 // ========== 字型大小 ==========
 const LS_FONT_SIZE = 'md_font_size';
@@ -252,7 +382,8 @@ mdRenderer.code = function(codeOrToken, langArg) {
     }
     if (language === 'mermaid') {
         const escaped = code.replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        return `<div class="mermaid-wrapper"><pre class="mermaid">${escaped}</pre></div>`;
+        const encoded = encodeURIComponent(code);
+        return `<div class="mermaid-wrapper" data-mermaid-source="${encoded}"><pre class="mermaid">${escaped}</pre></div>`;
     }
     let highlighted;
     try {
@@ -333,31 +464,74 @@ async function readFileText(filePath, ext, encodingOverride = 'auto') {
 }
 
 // ========== 開啟檔案 ==========
+async function reloadTabFromDisk(tab, options = {}) {
+    const { notify = true } = options;
+    if (!tab?.filePath) return false;
+    try {
+        const ext = tab.filePath.split('.').pop().toLowerCase();
+        const text = await readFileText(tab.filePath, ext, tab.csvEncoding || csvEncodingSelect.value);
+        tab.filePath = tab.filePath;
+        tab.dirPath = await window.electronAPI.pathDirname(tab.filePath);
+        tab.fileExt = ext;
+        tab.fileType = ext === 'csv' ? 'csv' : 'markdown';
+        tab.content = text;
+        tab.isModified = false;
+        tab.externalChanged = false;
+        updateTabTitle(tab);
+        const watchResult = await window.electronAPI.watchCurrentFile(tab.filePath);
+        if (!watchResult?.success) {
+            console.warn('監聽檔案失敗:', watchResult?.error);
+        }
+        if (tab.id === activeTabId) {
+            await refreshActiveTabView();
+            if (notify) showSaveToast('目前檔案已重新整理');
+        } else {
+            renderTabs();
+        }
+        return true;
+    } catch (e) {
+        console.error('重新載入檔案失敗:', e);
+        if (notify) showSaveToast('重新整理失敗');
+        return false;
+    }
+}
+
 async function openFile(filePath, options = {}) {
     try {
-        const { silent = false, skipWatch = false } = options;
-        const ext = filePath.split('.').pop().toLowerCase();
-        const text = await readFileText(filePath, ext, csvEncodingSelect.value);
-        currentFilePath = filePath;
-        currentDirPath  = await window.electronAPI.pathDirname(filePath);
-        currentFileExt  = ext;
-        currentFileType = ext === 'csv' ? 'csv' : 'markdown';
-        updateExportButtons();
-        editor.value = text;
-        await updatePreview();
-        statFile.textContent = await window.electronAPI.pathBasename(filePath);
-        if (!silent) showSaveToast('已開啟 ' + pathBasename(filePath));
-        setModified(false);
-        if (!skipWatch) {
-            const watchResult = await window.electronAPI.watchCurrentFile(filePath);
-            if (!watchResult?.success) {
-                console.warn('監聽檔案失敗:', watchResult?.error);
+        const { silent = false } = options;
+        syncEditorToActiveTab();
+        const existingTab = tabs.find(tab => tab.filePath === filePath);
+        if (existingTab) {
+            activeTabId = existingTab.id;
+            if (existingTab.externalChanged && !existingTab.isModified) {
+                await reloadTabFromDisk(existingTab, { notify: false });
+            } else {
+                await refreshActiveTabView();
             }
+            if (!silent) showSaveToast('已切換到 ' + pathBasename(filePath));
+            return;
         }
-        // 若側邊欄已開啟同目錄，更新 active
-        if (rootDirPath && currentDirPath && currentDirPath.startsWith(rootDirPath)) {
-            highlightFileInTree(filePath);
+
+        const ext = filePath.split('.').pop().toLowerCase();
+        const encoding = ext === 'csv' ? (csvEncodingSelect.value || 'auto') : 'auto';
+        const text = await readFileText(filePath, ext, encoding);
+        const tab = createTabState({
+            filePath,
+            dirPath: await window.electronAPI.pathDirname(filePath),
+            fileExt: ext,
+            fileType: ext === 'csv' ? 'csv' : 'markdown',
+            content: text,
+            csvEncoding: encoding,
+        });
+        updateTabTitle(tab);
+        tabs.push(tab);
+        activeTabId = tab.id;
+        const watchResult = await window.electronAPI.watchCurrentFile(filePath);
+        if (!watchResult?.success) {
+            console.warn('監聽檔案失敗:', watchResult?.error);
         }
+        await refreshActiveTabView();
+        if (!silent) showSaveToast('已開啟 ' + pathBasename(filePath));
     } catch (e) {
         console.error('開啟檔案失敗:', e);
         showSaveToast('開啟失敗');
@@ -366,12 +540,6 @@ async function openFile(filePath, options = {}) {
 
 function pathBasename(fp) {
     return fp.split(/[\\/]/).pop();
-}
-
-function highlightFileInTree(filePath) {
-    if (activeFileItem) activeFileItem.classList.remove('active');
-    activeFileItem = fileList.querySelector(`[data-path="${CSS.escape(filePath)}"]`);
-    if (activeFileItem) activeFileItem.classList.add('active');
 }
 
 function updateExportButtons() {
@@ -383,8 +551,15 @@ function updateExportButtons() {
     csvEncodingWrap.classList.toggle('flex', isCsv);
 }
 
-function setModified(modified) {
+function setModified(modified, options = {}) {
+    const { skipTabSync = false, silentTitle = false } = options;
     isModified = modified;
+    const tab = getActiveTab();
+    if (tab && !skipTabSync) {
+        tab.isModified = modified;
+        tab.content = editor.value;
+        updateTabTitle(tab);
+    }
     saveBtn.disabled = !modified && !currentFilePath;
     if (saveBtn.disabled) {
         saveBtn.classList.add('text-gray-400','border-gray-300','bg-gray-50','cursor-not-allowed');
@@ -395,11 +570,13 @@ function setModified(modified) {
     }
     // 視窗標題
     const name = currentFilePath ? pathBasename(currentFilePath) : '未命名';
-    document.title = (modified ? '● ' : '') + name + ' - shenMD';
+    if (!silentTitle) document.title = (modified ? '● ' : '') + name + ' - shenMD';
+    renderTabs();
 }
 
 // ========== 儲存功能 ==========
 async function saveCurrentFile() {
+    syncEditorToActiveTab();
     if (!currentFilePath) {
         await saveAsNewFile();
         return;
@@ -428,12 +605,23 @@ async function saveAsNewFile() {
         ]
     });
     if (!result.canceled && result.filePath) {
-        currentFilePath = result.filePath;
-        currentDirPath  = await window.electronAPI.pathDirname(currentFilePath);
-        currentFileExt  = currentFilePath.split('.').pop().toLowerCase();
-        currentFileType = currentFileExt === 'csv' ? 'csv' : 'markdown';
+        const tab = getActiveTab();
+        if (!tab) return;
+        if (tab.filePath && tab.filePath !== result.filePath) {
+            await window.electronAPI.unwatchCurrentFile(tab.filePath);
+        }
+        tab.filePath = result.filePath;
+        tab.dirPath  = await window.electronAPI.pathDirname(tab.filePath);
+        tab.fileExt  = tab.filePath.split('.').pop().toLowerCase();
+        tab.fileType = tab.fileExt === 'csv' ? 'csv' : 'markdown';
+        updateTabTitle(tab);
+        currentFilePath = tab.filePath;
+        currentDirPath = tab.dirPath;
+        currentFileExt = tab.fileExt;
+        currentFileType = tab.fileType;
+        statFile.textContent = tab.title;
+        renderTabs();
         updateExportButtons();
-        statFile.textContent = pathBasename(currentFilePath);
         await saveCurrentFile();
     }
 }
@@ -442,139 +630,31 @@ saveBtn.addEventListener('click', saveCurrentFile);
 
 // ========== 新建檔案 ==========
 function newFile() {
-    if (isModified) {
-        // 可選：提示儲存
-    }
-    currentFilePath = null;
-    currentDirPath  = null;
-    currentFileType = 'markdown';
-    currentFileExt  = '';
-    editor.value = '';
-    updatePreview();
-    statFile.textContent = '未命名';
-    setModified(false);
-    updateExportButtons();
-    window.electronAPI.unwatchCurrentFile();
-}
-
-// ========== 側邊欄 / 資料夾瀏覽 ==========
-async function openDirectory(dirPath) {
-    try {
-        rootDirPath = dirPath;
-        dirNameEl.textContent = '📁 ' + pathBasename(dirPath);
-        dirNameEl.classList.remove('hidden');
-        filePrompt.classList.add('hidden');
-        await refreshDirectory();
-    } catch (e) {
-        console.error('開啟資料夾失敗:', e);
-    }
-}
-
-async function refreshDirectory() {
-    if (!rootDirPath) {
-        showSaveToast('請先開啟資料夾');
-        return;
-    }
-    fileList.innerHTML = '';
-    activeFileItem = null;
-    await renderDirectory(rootDirPath, fileList, 0);
-    if (currentFilePath) highlightFileInTree(currentFilePath);
-    showSaveToast('檔案列表已刷新');
+    return createUntitledTab();
 }
 
 async function reloadCurrentFileFromDisk(options = {}) {
     const { force = false, notify = true } = options;
-    if (!currentFilePath) return false;
-    if (isModified && !force) {
+    const tab = getActiveTab();
+    if (!tab?.filePath) return false;
+    if (tab.isModified && !force) {
         if (notify) showSaveToast('目前檔案有未儲存修改，未自動重載');
         return false;
     }
-    await openFile(currentFilePath, { silent: true });
-    if (notify) showSaveToast('目前檔案已重新整理');
-    return true;
+    return await reloadTabFromDisk(tab, { notify });
 }
-
-async function renderDirectory(dirPath, container, depth) {
-    const result = await window.electronAPI.readDir(dirPath);
-    if (!result.success) { console.error(result.error); return; }
-    const entries = result.list;
-    for (const entry of entries) {
-        const entryPath = await window.electronAPI.pathJoin(dirPath, entry.name);
-        if (entry.isDirectory) {
-            const dirItem = document.createElement('div');
-            dirItem.className = 'file-item is-dir';
-            dirItem.style.paddingLeft = (12 + depth * 14) + 'px';
-            dirItem.innerHTML = `<span class="dir-arrow"></span><svg class="w-3.5 h-3.5 flex-shrink-0 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg><span class="truncate">${entry.name}</span>`;
-            const childContainer = document.createElement('div');
-            childContainer.className = 'dir-children'; childContainer.style.display = 'none';
-            let loaded = false;
-            dirItem.addEventListener('click', async () => {
-                const arrow = dirItem.querySelector('.dir-arrow');
-                const isOpen = childContainer.style.display !== 'none';
-                if (isOpen) { childContainer.style.display='none'; arrow.classList.remove('open'); }
-                else {
-                    if (!loaded) {
-                        await renderDirectory(entryPath, childContainer, depth + 1);
-                        loaded = true;
-                    }
-                    childContainer.style.display = 'block'; arrow.classList.add('open');
-                }
-            });
-            container.appendChild(dirItem); container.appendChild(childContainer);
-        } else {
-            const ext = entry.name.split('.').pop().toLowerCase();
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-item';
-            fileItem.style.paddingLeft = (12 + depth * 14) + 'px';
-            fileItem.dataset.path = entryPath;
-            fileItem.innerHTML = `${getFileIcon(ext)}<span class="truncate" title="${entry.name}">${entry.name}</span>`;
-            fileItem.addEventListener('click', async () => {
-                await openFile(entryPath);
-                if (activeFileItem) activeFileItem.classList.remove('active');
-                fileItem.classList.add('active'); activeFileItem = fileItem;
-            });
-            container.appendChild(fileItem);
-        }
-    }
-}
-
-function getFileIcon(ext) {
-    if (['md','markdown'].includes(ext)) return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-[#42b883]" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/></svg>`;
-    if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd"/></svg>`;
-    return `<svg class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/></svg>`;
-}
-
-openDirBtn.addEventListener('click', async () => {
-    const result = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] });
-    if (!result.canceled && result.filePaths.length > 0) {
-        await openDirectory(result.filePaths[0]);
-    }
-});
-refreshDirBtn.addEventListener('click', async () => {
-    await refreshDirectory();
-    if (currentFilePath) {
-        await reloadCurrentFileFromDisk({ notify: true });
-    }
-});
-filePromptBtn.addEventListener('click', async () => {
-    const result = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] });
-    if (!result.canceled && result.filePaths.length > 0) {
-        await openDirectory(result.filePaths[0]);
-    }
-});
-
-toggleSidebarBtn.addEventListener('click', () => {
-    sidebar.classList.toggle('collapsed');
-    localStorage.setItem('md_sidebar_collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
-});
 
 csvEncodingSelect.addEventListener('change', async () => {
     if (currentFileType !== 'csv' || !currentFilePath) return;
     try {
+        const tab = getActiveTab();
+        if (tab) tab.csvEncoding = csvEncodingSelect.value;
         const ext = currentFilePath.split('.').pop().toLowerCase();
         const text = await readFileText(currentFilePath, ext, csvEncodingSelect.value);
         editor.value = text;
+        if (tab) tab.content = text;
         await updatePreview();
+        setModified(false);
         showSaveToast(`CSV 重新解碼: ${csvEncodingSelect.value === 'auto' ? '自動' : csvEncodingSelect.value}`);
     } catch (e) {
         console.error('CSV 重新解碼失敗:', e);
@@ -591,7 +671,7 @@ async function updatePreview() {
         updateStats();
         return;
     }
-    const cleanHtml = DOMPurify.sanitize(marked.parse(editor.value), { ADD_ATTR: ['onclick', 'data-src'], FORCE_BODY: true });
+    const cleanHtml = DOMPurify.sanitize(marked.parse(editor.value), { ADD_ATTR: ['onclick', 'data-src', 'data-mermaid-source'], FORCE_BODY: true });
     previewContent.innerHTML = cleanHtml;
     const mermaidEls = previewContent.querySelectorAll('.mermaid');
     if (mermaidEls.length > 0) {
@@ -698,9 +778,8 @@ resizeHandle.addEventListener('mousedown', e => {
 document.addEventListener('mousemove', e => {
     if (!isResizing) return;
     const mainRect = mainEl.getBoundingClientRect();
-    const sidebarWidth = sidebar.classList.contains('collapsed') ? 0 : sidebar.offsetWidth;
-    const available = mainRect.width - sidebarWidth - resizeHandle.offsetWidth;
-    let editorPct = (e.clientX - mainRect.left - sidebarWidth) / available * 100;
+    const available = mainRect.width - resizeHandle.offsetWidth;
+    let editorPct = (e.clientX - mainRect.left) / available * 100;
     editorPct = Math.max(15, Math.min(85, editorPct));
     editorPanel.style.width = editorPct + '%';
     previewPanel.style.width = (100 - editorPct) + '%';
@@ -714,7 +793,11 @@ document.addEventListener('mouseup', () => {
 });
 
 // ========== 編輯器事件 ==========
-editor.addEventListener('input', () => { updatePreview(); setModified(true); });
+editor.addEventListener('input', () => {
+    syncEditorToActiveTab();
+    updatePreview();
+    setModified(true);
+});
 editor.addEventListener('scroll', () => {
     const pct = editor.scrollTop / (editor.scrollHeight - editor.clientHeight);
     previewWrapper.scrollTop = pct * (previewWrapper.scrollHeight - previewWrapper.clientHeight);
@@ -748,22 +831,86 @@ async function downloadBlob(blob, filename) {
 }
 
 // ========== SVG / 圖片處理 (PDF / Word 匯出用) ==========
-function svgToDataUrl(svgEl) {
+function numericSvgLength(value, fallback) {
+    const raw = String(value || '').trim();
+    if (!raw || raw.endsWith('%')) return fallback;
+    const parsed = parseFloat(raw.replace('px', ''));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+function getSvgPixelSize(svgEl, fallbackWidth = 800, fallbackHeight = 450) {
     const rect = svgEl.getBoundingClientRect();
-    const w = svgEl.getAttribute('width')  || rect.width  || 800;
-    const h = svgEl.getAttribute('height') || rect.height || 600;
+    const viewBox = (svgEl.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
+    const viewBoxWidth = viewBox.length === 4 && Number.isFinite(viewBox[2]) ? viewBox[2] : 0;
+    const viewBoxHeight = viewBox.length === 4 && Number.isFinite(viewBox[3]) ? viewBox[3] : 0;
+    const width = numericSvgLength(svgEl.getAttribute('width'), rect.width || viewBoxWidth || fallbackWidth);
+    const height = numericSvgLength(svgEl.getAttribute('height'), rect.height || viewBoxHeight || fallbackHeight);
+    return {
+        width: Math.max(Math.round(width), 1),
+        height: Math.max(Math.round(height), 1),
+    };
+}
+function getSvgContentBox(svgEl, padding = 16) {
+    try {
+        const box = svgEl.getBBox();
+        if (!box || box.width <= 0 || box.height <= 0) return null;
+        return {
+            x: box.x - padding,
+            y: box.y - padding,
+            width: box.width + padding * 2,
+            height: box.height + padding * 2,
+        };
+    } catch (e) {
+        return null;
+    }
+}
+function svgToDataUrl(svgEl) {
+    const contentBox = getSvgContentBox(svgEl);
+    const size = getSvgPixelSize(svgEl);
+    const w = contentBox ? Math.ceil(contentBox.width) : size.width;
+    const h = contentBox ? Math.ceil(contentBox.height) : size.height;
     const clone = svgEl.cloneNode(true);
     clone.setAttribute('width',  w);
     clone.setAttribute('height', h);
+    if (contentBox) {
+        clone.setAttribute('viewBox', `${contentBox.x} ${contentBox.y} ${contentBox.width} ${contentBox.height}`);
+    }
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bg.setAttribute('width',  '100%');
-    bg.setAttribute('height', '100%');
+    bg.setAttribute('x', contentBox ? contentBox.x : '0');
+    bg.setAttribute('y', contentBox ? contentBox.y : '0');
+    bg.setAttribute('width', contentBox ? contentBox.width : '100%');
+    bg.setAttribute('height', contentBox ? contentBox.height : '100%');
     bg.setAttribute('fill',   'white');
     clone.insertBefore(bg, clone.firstChild);
     const svgStr  = new XMLSerializer().serializeToString(clone);
     const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
     return { dataUrl, w, h };
+}
+function decodeMermaidSource(encoded) {
+    if (!encoded) return '';
+    try {
+        return decodeURIComponent(encoded);
+    } catch (e) {
+        console.warn('Mermaid source decode 失敗:', e);
+        return encoded;
+    }
+}
+async function renderMermaidSourceToPngDataUrl(source, scale = 2.5) {
+    const renderId = `mermaid-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { svg } = await mermaid.render(renderId, source);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-20000px;top:0;background:#ffffff;padding:16px;';
+    host.innerHTML = svg;
+    document.body.appendChild(host);
+    try {
+        const svgEl = host.querySelector('svg');
+        if (!svgEl) throw new Error('Mermaid SVG 未產生');
+        const { dataUrl, w, h } = svgToDataUrl(svgEl);
+        const pngDataUrl = await svgDataUrlToPngDataUrl(dataUrl, w, h, scale);
+        return { dataUrl: pngDataUrl, width: w, height: h };
+    } finally {
+        if (host.parentNode) host.parentNode.removeChild(host);
+    }
 }
 async function blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
@@ -804,8 +951,10 @@ async function svgDataUrlToPngDataUrl(dataUrl, width, height, scale = 2) {
         img.onload = () => {
             try {
                 const canvas = document.createElement('canvas');
-                canvas.width = Math.max(Math.round(width * scale), 1);
-                canvas.height = Math.max(Math.round(height * scale), 1);
+                const safeWidth = Number.isFinite(width) && width > 0 ? width : 800;
+                const safeHeight = Number.isFinite(height) && height > 0 ? height : 450;
+                canvas.width = Math.max(Math.round(safeWidth * scale), 1);
+                canvas.height = Math.max(Math.round(safeHeight * scale), 1);
                 const ctx = canvas.getContext('2d');
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -857,12 +1006,25 @@ async function createExportSnapshot(widthPx) {
         cell.style.maxWidth = '300px';
     });
     for (const wrapper of exportEl.querySelectorAll('.mermaid-wrapper')) {
-        const svgEl = wrapper.querySelector('svg');
-        if (!svgEl) continue;
         try {
-            const { dataUrl, w, h } = svgToDataUrl(svgEl);
-            const pngDataUrl = await svgDataUrlToPngDataUrl(dataUrl, Number(w), Number(h), 2.5);
-            wrapper.innerHTML = `<img src="${pngDataUrl}" style="max-width:100%;width:${w}px;height:auto;display:block;margin:0 auto;" />`;
+            const source = decodeMermaidSource(wrapper.dataset.mermaidSource || '');
+            let pngDataUrl = null;
+            let targetWidth = 800;
+            const svgEl = wrapper.querySelector('svg');
+            if (source) {
+                const renderedMermaid = await renderMermaidSourceToPngDataUrl(source, 2.5);
+                pngDataUrl = renderedMermaid.dataUrl;
+                targetWidth = Math.min(Math.max(renderedMermaid.width, 520), 900);
+            } else if (svgEl) {
+                const { dataUrl, w, h } = svgToDataUrl(svgEl);
+                targetWidth = w || targetWidth;
+                pngDataUrl = await svgDataUrlToPngDataUrl(dataUrl, w, h, 2.5);
+            }
+            if (!pngDataUrl) continue;
+            if (svgEl) {
+                targetWidth = getSvgPixelSize(svgEl).width || targetWidth;
+            }
+            wrapper.innerHTML = `<img src="${pngDataUrl}" class="export-mermaid-img" style="max-width:100%;width:${targetWidth}px;height:auto;display:block;margin:0 auto;" />`;
         } catch(e) { console.warn('Mermaid SVG 轉換失敗:', e); }
     }
     for (const img of exportEl.querySelectorAll('img')) {
@@ -1279,20 +1441,13 @@ function showSaveToast(msg = '已儲存') {
 }
 
 // ========== 初始化 ==========
-if (localStorage.getItem('md_sidebar_collapsed') === '1') sidebar.classList.add('collapsed');
 setViewMode(localStorage.getItem(LS_VIEW) || 'split');
-
-editor.value = defaultMarkdown;
-statFile.textContent = '未命名';
-updateExportButtons();
-updatePreview();
+ensureAtLeastOneTab();
+refreshActiveTabView();
 
 // ========== IPC 事件綁定 ==========
 window.electronAPI.onOpenFile(async (filePath) => {
     await openFile(filePath);
-});
-window.electronAPI.onOpenDirectory(async (dirPath) => {
-    await openDirectory(dirPath);
 });
 window.electronAPI.onMenuNewFile(() => newFile());
 window.electronAPI.onMenuSave(() => saveCurrentFile());
@@ -1307,9 +1462,16 @@ window.electronAPI.onFontSizeChange(delta => {
     if (newSize >= 10 && newSize <= 22) { fontSize = newSize; applyFontSize(); }
 });
 window.electronAPI.onWatchedFileChanged(async ({ filePath }) => {
-    if (!currentFilePath || filePath !== currentFilePath) return;
+    const tab = tabs.find(item => item.filePath === filePath);
+    if (!tab) return;
     if (Date.now() < suppressWatchReloadUntil) return;
-    await reloadCurrentFileFromDisk({ notify: true });
+    tab.externalChanged = true;
+    if (tab.id === activeTabId) {
+        await reloadCurrentFileFromDisk({ notify: true });
+    } else {
+        renderTabs();
+        showSaveToast(`${tab.title} 已在外部更新`);
+    }
 });
 
 // 嘗試載入最近檔案列表（側邊欄提示用，可擴展）

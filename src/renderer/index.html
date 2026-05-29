@@ -60,11 +60,6 @@
             </select>
         </div>
 
-        <!-- 切換側邊欄 -->
-        <button id="toggleSidebarBtn" class="flex items-center gap-1.5 text-gray-500 hover:text-[#42b883] transition-colors text-xs border border-gray-200 hover:border-[#42b883] rounded px-2 py-1.5 bg-white" title="切換側邊欄">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-        </button>
-
         <!-- 儲存按鈕 -->
         <button id="saveBtn" disabled class="flex items-center gap-1.5 text-gray-400 border border-gray-300 bg-gray-50 cursor-not-allowed rounded px-3 py-1.5 text-xs font-medium transition-colors" title="儲存檔案 (Ctrl+S)">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
@@ -89,35 +84,13 @@
         </button>
     </header>
 
+    <div id="tabbar" class="border-b border-gray-200 bg-white flex items-center gap-1 px-3 py-1.5 overflow-x-auto flex-shrink-0 shadow-sm">
+        <div id="tabs-list" class="flex items-center gap-1 min-w-0 flex-1"></div>
+        <button id="newTabBtn" class="tab-add-btn" title="新增分頁">+</button>
+    </div>
+
     <!-- 主內容區 -->
     <main class="flex flex-1 overflow-hidden">
-
-        <!-- 側邊欄：資料夾瀏覽 -->
-        <aside id="sidebar" class="bg-white border-r border-gray-200 flex flex-col overflow-hidden">
-            <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 flex-shrink-0">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">檔案瀏覽</span>
-                <div class="flex items-center gap-1">
-                    <button id="refreshDirBtn" title="刷新檔案列表" class="flex items-center gap-1 text-xs text-gray-500 hover:text-[#42b883] transition-colors px-1.5 py-1 rounded hover:bg-gray-100">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                        刷新
-                    </button>
-                    <button id="openDirBtn" title="開啟資料夾" class="flex items-center gap-1 text-xs text-gray-500 hover:text-[#42b883] transition-colors px-1.5 py-1 rounded hover:bg-gray-100">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
-                        開啟
-                    </button>
-                </div>
-            </div>
-            <div id="dir-name" class="hidden px-3 py-1.5 text-xs font-medium text-[#42b883] border-b border-gray-100 truncate flex-shrink-0"></div>
-            <!-- 首次使用提示 -->
-            <div id="file-prompt" class="">
-                <button id="file-prompt-btn">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
-                    開啟資料夾
-                </button>
-                <p>點擊上方按鈕選取資料夾<br>之後會自動記住</p>
-            </div>
-            <div id="file-list" class="flex-1 overflow-y-auto py-1"></div>
-        </aside>
 
         <!-- 編輯器面板 -->
         <div id="editor-panel" class="flex flex-col overflow-hidden" style="width:50%">

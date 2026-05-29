@@ -33,11 +33,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Clipboard
   readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image'),
   watchCurrentFile: (filePath) => ipcRenderer.invoke('watch-current-file', filePath),
-  unwatchCurrentFile: () => ipcRenderer.invoke('unwatch-current-file'),
+  unwatchCurrentFile: (filePath) => ipcRenderer.invoke('unwatch-current-file', filePath),
 
   // Events from main
   onOpenFile: (callback) => ipcRenderer.on('open-file', (event, filePath) => callback(filePath)),
-  onOpenDirectory: (callback) => ipcRenderer.on('open-directory', (event, dirPath) => callback(dirPath)),
   onMenuNewFile: (callback) => ipcRenderer.on('menu-new-file', () => callback()),
   onMenuSave: (callback) => ipcRenderer.on('menu-save', () => callback()),
   onMenuSaveAs: (callback) => ipcRenderer.on('menu-save-as', () => callback()),
