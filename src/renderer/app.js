@@ -259,6 +259,42 @@ viewBtns.edit.addEventListener('click',    () => setViewMode('edit'));
 viewBtns.split.addEventListener('click',   () => setViewMode('split'));
 viewBtns.preview.addEventListener('click', () => setViewMode('preview'));
 
+// ========== 主題切換 ==========
+const THEME_LABELS = { vue: 'Vue 綠', notion: 'Notion 風', 'github-dark': 'GitHub Dark' };
+const LS_THEME = 'md_theme';
+const themeSelectBtn = document.getElementById('themeSelectBtn');
+const themeLabel = document.getElementById('themeLabel');
+const themeDropdown = document.getElementById('themeDropdown');
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem(LS_THEME, theme);
+    if (themeLabel) themeLabel.textContent = THEME_LABELS[theme] || 'Vue 綠';
+    if (themeDropdown) {
+        themeDropdown.querySelectorAll('.theme-opt').forEach(btn => {
+            btn.classList.toggle('font-semibold', btn.dataset.theme === theme);
+            btn.classList.toggle('text-emerald-700', btn.dataset.theme === theme);
+        });
+    }
+    const mermaidTheme = theme === 'github-dark' ? 'dark' : theme === 'notion' ? 'neutral' : 'default';
+    mermaid.initialize({ startOnLoad: false, theme: mermaidTheme, securityLevel: 'loose' });
+}
+
+themeSelectBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    themeDropdown.classList.toggle('hidden');
+});
+themeDropdown?.querySelectorAll('.theme-opt').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        applyTheme(btn.dataset.theme);
+        themeDropdown.classList.add('hidden');
+    });
+});
+document.addEventListener('click', () => themeDropdown?.classList.add('hidden'));
+
+applyTheme(localStorage.getItem(LS_THEME) || 'vue');
+
 // ========== Markdown 工具列 ==========
 function wrapSelection(before, after='', placeholder='文字') {
     const start = editor.selectionStart, end = editor.selectionEnd;
