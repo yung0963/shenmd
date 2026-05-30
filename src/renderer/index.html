@@ -137,6 +137,54 @@
                 <button class="tb-btn" data-action="table" title="表格" style="font-size:0.7rem">表</button>
                 <button class="tb-btn" data-action="hr" title="水平線">—</button>
             </div>
+            <!-- 搜尋與取代面板 -->
+            <div id="search-panel" class="hidden border-b border-gray-200 bg-gray-50 px-3 py-2 flex-col gap-2 flex-shrink-0 text-xs text-gray-600 transition-all">
+                <!-- 搜尋行 -->
+                <div class="flex items-center gap-2">
+                    <button id="search-toggle-replace" class="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200 transition-colors" title="切換取代面板">
+                        <svg class="w-3.5 h-3.5 transform transition-transform" id="search-replace-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+                    <!-- 搜尋輸入框 -->
+                    <div class="flex-1 flex items-center border border-gray-300 rounded bg-white px-2 py-1" id="search-input-wrap">
+                        <input type="text" id="search-input" class="flex-1 outline-none bg-transparent" placeholder="搜尋 (Cmd+F)">
+                        <div class="flex items-center gap-1 ml-1.5 border-l border-gray-200 pl-1.5 flex-shrink-0">
+                            <button id="search-case-sensitive" class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 font-bold" title="區分大小寫 (Aa)">Aa</button>
+                            <button id="search-regex" class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 font-bold font-mono text-[10px]" title="使用正規表示式 (.*)">.*</button>
+                        </div>
+                    </div>
+                    <!-- 搜尋導覽 -->
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <span id="search-results-count" class="text-gray-400 font-medium px-1 select-none min-w-[32px] text-center">0/0</span>
+                        <button id="search-prev" class="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200" title="上一個 (Shift+Enter)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
+                            </svg>
+                        </button>
+                        <button id="search-next" class="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200" title="下一個 (Enter)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <button id="search-close" class="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200" title="關閉 (Esc)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <!-- 取代行 -->
+                <div id="replace-row" class="hidden items-center gap-2 pl-8">
+                    <div class="flex-1 flex items-center border border-gray-300 rounded bg-white px-2 py-1" id="replace-input-wrap">
+                        <input type="text" id="replace-input" class="flex-1 outline-none bg-transparent" placeholder="取代為">
+                    </div>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <button id="replace-btn" class="px-2.5 py-1 border border-gray-300 rounded bg-white hover:border-[#42b883] hover:text-[#42b883] transition-colors font-medium" title="取代">取代</button>
+                        <button id="replace-all-btn" class="px-2.5 py-1 border border-gray-300 rounded bg-white hover:border-[#42b883] hover:text-[#42b883] transition-colors font-medium" title="全部取代">全部取代</button>
+                    </div>
+                </div>
+            </div>
             <!-- 編輯器標題列 -->
             <div class="flex items-center justify-between px-3 py-1 bg-gray-50 border-b border-gray-200 flex-shrink-0">
                 <span class="text-xs font-medium text-gray-400">Markdown</span>

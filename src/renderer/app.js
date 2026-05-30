@@ -71,6 +71,22 @@ const dragOverlay    = document.getElementById('drag-overlay');
 const tabsList       = document.getElementById('tabs-list');
 const newTabBtn      = document.getElementById('newTabBtn');
 
+// 搜尋與取代 DOM
+const searchPanel        = document.getElementById('search-panel');
+const searchInput        = document.getElementById('search-input');
+const searchToggleReplace= document.getElementById('search-toggle-replace');
+const searchReplaceArrow = document.getElementById('search-replace-arrow');
+const searchCaseSensitive= document.getElementById('search-case-sensitive');
+const searchRegex        = document.getElementById('search-regex');
+const searchResultsCount = document.getElementById('search-results-count');
+const searchPrevBtn      = document.getElementById('search-prev');
+const searchNextBtn      = document.getElementById('search-next');
+const searchCloseBtn     = document.getElementById('search-close');
+const replaceRow         = document.getElementById('replace-row');
+const replaceInput       = document.getElementById('replace-input');
+const replaceBtn         = document.getElementById('replace-btn');
+const replaceAllBtn      = document.getElementById('replace-all-btn');
+
 // ========== 狀態 ==========
 let currentFilePath = null;   // 目前開啟的檔案絕對路徑
 let currentDirPath  = null;   // 目前檔案所在目錄
@@ -81,6 +97,10 @@ let suppressWatchReloadUntil = 0;
 let activeTabId = null;
 let nextTabId = 1;
 const tabs = [];
+
+// 搜尋狀態
+let searchMatches = [];
+let activeSearchIndex = -1;
 
 function scheduleAutoSave() {}
 
@@ -366,10 +386,24 @@ editor.addEventListener('keydown', e => {
         editor.setRangeText('    ', s, en, 'end');
         updatePreview();
     }
+    if (e.key === 'Escape') {
+        if (!searchPanel.classList.contains('hidden')) {
+            e.preventDefault();
+            closeSearchPanel();
+        }
+    }
 });
 document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault(); saveCurrentFile();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        openSearchPanel({ showReplace: false });
+    }
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'f') {
+        e.preventDefault();
+        openSearchPanel({ showReplace: true });
     }
 });
 
@@ -833,6 +867,9 @@ editor.addEventListener('input', () => {
     syncEditorToActiveTab();
     updatePreview();
     setModified(true);
+    if (!searchPanel.classList.contains('hidden')) {
+        runSearch();
+    }
 });
 editor.addEventListener('scroll', () => {
     const pct = editor.scrollTop / (editor.scrollHeight - editor.clientHeight);
@@ -1509,6 +1546,233 @@ window.electronAPI.onWatchedFileChanged(async ({ filePath }) => {
         showSaveToast(`${tab.title} 已在外部更新`);
     }
 });
+
+// ==================== 搜尋與取代功能實作 ====================
+
+function openSearchPanel(options = {}) {
+    const { showReplace = false } = options;
+    
+    const selection = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    if (selection && selection.indexOf('\n') === -1) {
+        searchInput.value = selection;
+    }
+
+    searchPanel.classList.remove('hidden');
+    searchPanel.classList.add('flex');
+
+    if (showReplace) {
+        replaceRow.classList.remove('hidden');
+        replaceRow.classList.add('flex');
+        searchReplaceArrow.classList.add('rotate-90');
+    } else {
+        replaceRow.classList.add('hidden');
+        replaceRow.classList.remove('flex');
+        searchReplaceArrow.classList.remove('rotate-90');
+    }
+
+    searchInput.focus();
+    searchInput.select();
+
+    runSearch();
+}
+
+function closeSearchPanel() {
+    searchPanel.classList.add('hidden');
+    searchPanel.classList.remove('flex');
+    searchMatches = [];
+    activeSearchIndex = -1;
+    editor.focus();
+}
+
+function buildSearchRegex(query, caseSensitive, isRegex) {
+    try {
+        let pattern = query;
+        if (!isRegex) {
+            pattern = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        return { regex: new RegExp(pattern, caseSensitive ? 'g' : 'gi'), error: null };
+    } catch (e) {
+        return { regex: null, error: e.message };
+    }
+}
+
+function collectMatches(regex, text) {
+    const matches = [];
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+        matches.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+        if (m.index === regex.lastIndex) regex.lastIndex++;
+    }
+    return matches;
+}
+
+function runSearch() {
+    const query = searchInput.value;
+    if (!query) {
+        searchMatches = [];
+        activeSearchIndex = -1;
+        searchResultsCount.textContent = '0 / 0';
+        return;
+    }
+
+    const caseSensitive = searchCaseSensitive.classList.contains('active');
+    const isRegex = searchRegex.classList.contains('active');
+    const { regex, error } = buildSearchRegex(query, caseSensitive, isRegex);
+
+    if (error) {
+        searchResultsCount.textContent = '錯誤';
+        searchMatches = [];
+        activeSearchIndex = -1;
+        return;
+    }
+
+    searchMatches = collectMatches(regex, editor.value);
+
+    if (searchMatches.length === 0) {
+        activeSearchIndex = -1;
+        searchResultsCount.textContent = '0 / 0';
+        return;
+    }
+
+    if (activeSearchIndex < 0 || activeSearchIndex >= searchMatches.length) {
+        const pos = editor.selectionStart;
+        const cursor = Math.min(pos, editor.value.length);
+        let idx = searchMatches.findIndex(m => m.start >= cursor);
+        if (idx === -1) idx = 0;
+        activeSearchIndex = idx;
+    }
+
+    const match = searchMatches[activeSearchIndex];
+    const prevActive = document.activeElement;
+    editor.focus();
+    editor.selectionStart = match.start;
+    editor.selectionEnd = match.end;
+    if (prevActive && prevActive !== editor) {
+        prevActive.focus();
+    }
+    searchResultsCount.textContent = `${activeSearchIndex + 1} / ${searchMatches.length}`;
+}
+
+function navigateSearch(direction) {
+    if (searchMatches.length === 0) return;
+
+    if (direction === 1) {
+        activeSearchIndex = (activeSearchIndex + 1) % searchMatches.length;
+    } else if (direction === -1) {
+        activeSearchIndex = (activeSearchIndex - 1 + searchMatches.length) % searchMatches.length;
+    }
+
+    const match = searchMatches[activeSearchIndex];
+    editor.focus();
+    editor.selectionStart = match.start;
+    editor.selectionEnd = match.end;
+    searchResultsCount.textContent = `${activeSearchIndex + 1} / ${searchMatches.length}`;
+    searchInput.focus();
+}
+
+function replaceActive() {
+    if (searchMatches.length === 0 || activeSearchIndex < 0) return;
+    const match = searchMatches[activeSearchIndex];
+    const replacement = replaceInput.value;
+    const val = editor.value;
+
+    const before = val.substring(0, match.start);
+    const after = val.substring(match.end);
+    editor.value = before + replacement + after;
+
+    const newCursor = match.start + replacement.length;
+    editor.selectionStart = newCursor;
+    editor.selectionEnd = newCursor;
+    editor.dispatchEvent(new Event('input'));
+
+    runSearch();
+    if (activeSearchIndex >= searchMatches.length) {
+        activeSearchIndex = searchMatches.length > 0 ? searchMatches.length - 1 : -1;
+    }
+    replaceInput.focus();
+}
+
+function replaceAll() {
+    if (searchMatches.length === 0) return;
+    const query = searchInput.value;
+    const replacement = replaceInput.value;
+
+    const caseSensitive = searchCaseSensitive.classList.contains('active');
+    const isRegex = searchRegex.classList.contains('active');
+    const { regex, error } = buildSearchRegex(query, caseSensitive, isRegex);
+
+    if (error) return;
+
+    const count = searchMatches.length;
+    editor.value = editor.value.replace(regex, replacement);
+    editor.dispatchEvent(new Event('input'));
+
+    runSearch();
+    showSaveToast(`已取代 ${count} 處符合項目`);
+    searchInput.focus();
+}
+
+// 監聽搜尋與取代控制項事件
+searchInput.addEventListener('input', () => {
+    runSearch();
+});
+
+searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+            navigateSearch(-1);
+        } else {
+            navigateSearch(1);
+        }
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSearchPanel();
+    }
+});
+
+replaceInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        replaceActive();
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSearchPanel();
+    }
+});
+
+searchToggleReplace.addEventListener('click', () => {
+    const isShowing = !replaceRow.classList.contains('hidden');
+    if (isShowing) {
+        replaceRow.classList.add('hidden');
+        replaceRow.classList.remove('flex');
+        searchReplaceArrow.classList.remove('rotate-90');
+    } else {
+        replaceRow.classList.remove('hidden');
+        replaceRow.classList.add('flex');
+        searchReplaceArrow.classList.add('rotate-90');
+    }
+});
+
+searchCaseSensitive.addEventListener('click', () => {
+    searchCaseSensitive.classList.toggle('active');
+    runSearch();
+});
+
+searchRegex.addEventListener('click', () => {
+    searchRegex.classList.toggle('active');
+    runSearch();
+});
+
+searchNextBtn.addEventListener('click', () => navigateSearch(1));
+searchPrevBtn.addEventListener('click', () => navigateSearch(-1));
+searchCloseBtn.addEventListener('click', closeSearchPanel);
+replaceBtn.addEventListener('click', replaceActive);
+replaceAllBtn.addEventListener('click', replaceAll);
+
+// 綁定 IPC 選單事件
+window.electronAPI.onMenuFind(() => openSearchPanel({ showReplace: false }));
+window.electronAPI.onMenuReplace(() => openSearchPanel({ showReplace: true }));
 
 // 嘗試載入最近檔案列表（側邊欄提示用，可擴展）
 (async () => {

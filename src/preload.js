@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMenuSave: (callback) => ipcRenderer.on('menu-save', () => callback()),
   onMenuSaveAs: (callback) => ipcRenderer.on('menu-save-as', () => callback()),
   onMenuPasteImage: (callback) => ipcRenderer.on('menu-paste-image', () => callback()),
+  onMenuFind: (callback) => ipcRenderer.on('menu-find', () => callback()),
+  onMenuReplace: (callback) => ipcRenderer.on('menu-replace', () => callback()),
   onMenuExportPdf: (callback) => ipcRenderer.on('menu-export-pdf', () => callback()),
   onMenuExportWord: (callback) => ipcRenderer.on('menu-export-word', () => callback()),
   onMenuExportExcel: (callback) => ipcRenderer.on('menu-export-excel', () => callback()),

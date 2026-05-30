@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
-    "dist": "electron-builder --mac --arm64"
+    "dist": "npm install && electron-builder --mac --arm64"
   },
   "build": {
     "appId": "com.shenmb.shenmd",

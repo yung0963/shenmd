@@ -255,6 +255,21 @@ function updateMenu() {
         { role: 'selectAll', label: '全選' },
         { type: 'separator' },
         {
+          label: '尋找',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => {
+            if (mainWindow) mainWindow.webContents.send('menu-find');
+          }
+        },
+        {
+          label: '取代',
+          accelerator: 'CmdOrCtrl+Alt+F',
+          click: () => {
+            if (mainWindow) mainWindow.webContents.send('menu-replace');
+          }
+        },
+        { type: 'separator' },
+        {
           label: '貼上圖片',
           accelerator: 'CmdOrCtrl+Shift+V',
           click: () => {

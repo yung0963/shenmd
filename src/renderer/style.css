@@ -392,3 +392,40 @@ body {
     -webkit-app-region: no-drag;
     app-region: no-drag;
 }
+
+/* ========== 搜尋與取代面板主題適配 ========== */
+#search-panel {
+  background: var(--ui-toolbar-bg);
+  border-bottom-color: var(--ui-toolbar-border);
+  color: var(--md-text);
+}
+#search-input-wrap,
+#replace-input-wrap {
+  background: var(--ui-bg);
+  border-color: var(--ui-border);
+  color: var(--md-text);
+}
+#search-input-wrap:focus-within,
+#replace-input-wrap:focus-within {
+  border-color: var(--md-link);
+}
+#replace-btn,
+#replace-all-btn {
+  background: var(--ui-bg);
+  border-color: var(--ui-border);
+  color: var(--md-text);
+}
+#replace-btn:hover,
+#replace-all-btn:hover {
+  border-color: var(--md-link);
+  color: var(--md-link);
+}
+#search-panel button:not(#replace-btn):not(#replace-all-btn):hover {
+  background: var(--ui-toolbar-btn-hover);
+}
+#search-case-sensitive.active,
+#search-regex.active {
+  background: color-mix(in srgb, var(--md-link) 20%, var(--ui-bg));
+  color: var(--md-link);
+  border: 1px solid var(--md-link);
+}
