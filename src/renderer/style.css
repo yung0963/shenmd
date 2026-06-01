@@ -6,6 +6,9 @@
   --md-bg: #ffffff;
   --md-text: #334155;
   --md-heading: #0f172a;
+  --md-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "蘋方-繁", "Heiti TC", "黑體-繁", "Microsoft JhengHei", "微軟正黑體", "BiauKai", "DFKai-SB", "標楷體", "PMingLiU", "新細明體", "Noto Sans TC", "思源黑體", "Hiragino Sans GB", sans-serif;
+  --md-heading-font: var(--md-font);
+  --md-code-font: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, "Microsoft JhengHei", "微軟正黑體", "Heiti TC", monospace;
   --md-link: #42b883;
   --md-link-hover: #33a06f;
   --md-code-bg: #f1f5f9;
@@ -43,6 +46,9 @@
   --md-bg: #ffffff;
   --md-text: #37352f;
   --md-heading: #37352f;
+  --md-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "蘋方-繁", "Heiti TC", "黑體-繁", "Microsoft JhengHei", "微軟正黑體", "BiauKai", "DFKai-SB", "標楷體", "PMingLiU", "新細明體", "Noto Sans TC", "思源黑體", "Hiragino Sans GB", sans-serif;
+  --md-heading-font: var(--md-font);
+  --md-code-font: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, "Microsoft JhengHei", "微軟正黑體", "Heiti TC", monospace;
   --md-link: #2383e2;
   --md-link-hover: #1a6bc0;
   --md-code-bg: #f7f6f3;
@@ -80,6 +86,9 @@
   --md-bg: #0d1117;
   --md-text: #c9d1d9;
   --md-heading: #f0f6fc;
+  --md-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "蘋方-繁", "Heiti TC", "黑體-繁", "Microsoft JhengHei", "微軟正黑體", "BiauKai", "DFKai-SB", "標楷體", "PMingLiU", "新細明體", "Noto Sans TC", "思源黑體", "Hiragino Sans GB", sans-serif;
+  --md-heading-font: var(--md-font);
+  --md-code-font: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, "Microsoft JhengHei", "微軟正黑體", "Heiti TC", monospace;
   --md-link: #58a6ff;
   --md-link-hover: #79b8ff;
   --md-code-bg: #161b22;
@@ -246,14 +255,26 @@ body {
   color: var(--md-link);
 }
 
+/* font dropdown */
+#fontSelectBtn:hover,
+#fontSelectBtn:focus {
+  border-color: var(--md-link);
+  color: var(--md-link);
+}
+#fontDropdown .font-opt.active {
+  background: color-mix(in srgb, var(--md-link) 12%, var(--ui-bg));
+  color: var(--md-link);
+}
+
 /* ========== Vue Markdown ========== */
 .vue-markdown {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--md-font);
     color: var(--md-text); line-height: 1.7; font-size: 16px;
     background-color: var(--md-bg);
 }
-.vue-markdown h1,.vue-markdown h2,.vue-markdown h3,.vue-markdown h4 {
+.vue-markdown h1,.vue-markdown h2,.vue-markdown h3,.vue-markdown h4,.vue-markdown h5,.vue-markdown h6 {
     color: var(--md-heading); font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em;
+    font-family: var(--md-heading-font);
 }
 .vue-markdown h1 { font-size: 2.2em; border-bottom: 1px solid var(--md-hr); padding-bottom: 0.3em; margin-top: 0; }
 .vue-markdown h2 { font-size: 1.65em; border-bottom: 1px solid var(--md-hr); padding-bottom: 0.3em; }
@@ -271,7 +292,7 @@ body {
 .vue-markdown :not(pre) > code {
     background-color: var(--md-code-bg); color: var(--md-code-text); padding: 0.18em 0.45em;
     border-radius: 5px; font-size: 0.88em;
-    font-family: "JetBrains Mono","Fira Code",Consolas,monospace; border: 1px solid var(--md-code-border);
+    font-family: var(--md-code-font); border: 1px solid var(--md-code-border);
 }
 .vue-markdown blockquote {
     border-left: 4px solid var(--md-quote-border); margin: 1.2em 0; padding: 0.6em 1em;
@@ -293,7 +314,7 @@ body {
 .copy-btn:hover { background: var(--md-copy-btn-hover-bg); color: var(--md-copy-btn-hover-text); border-color: var(--md-copy-btn-hover-border); }
 .copy-btn.copied { background: var(--md-copy-btn-hover-bg); color: var(--md-copy-btn-hover-text); border-color: var(--md-copy-btn-hover-border); }
 .code-block-wrapper pre { margin: 0; padding: 14px 16px; background: var(--md-pre-bg); overflow-x: auto; }
-.code-block-wrapper pre code { background: transparent !important; border: none !important; padding: 0 !important; font-family: "JetBrains Mono","Fira Code",Consolas,monospace; font-size: 0.875em; line-height: 1.6; }
+.code-block-wrapper pre code { background: transparent !important; border: none !important; padding: 0 !important; font-family: var(--md-code-font); font-size: 0.875em; line-height: 1.6; }
 
 /* 儲存提示 */
 @keyframes fadeSlide { 0%{opacity:0;transform:translateY(-4px)} 20%{opacity:1;transform:translateY(0)} 80%{opacity:1} 100%{opacity:0} }

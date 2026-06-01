@@ -311,9 +311,82 @@ themeDropdown?.querySelectorAll('.theme-opt').forEach(btn => {
         themeDropdown.classList.add('hidden');
     });
 });
-document.addEventListener('click', () => themeDropdown?.classList.add('hidden'));
+document.addEventListener('click', () => {
+    themeDropdown?.classList.add('hidden');
+    fontDropdown?.classList.add('hidden');
+});
 
 applyTheme(localStorage.getItem(LS_THEME) || 'vue');
+
+// ========== 文件字型 ==========
+const FONT_OPTIONS = [
+    { id: 'system',   label: '系統預設',                       cssFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "蘋方-繁", "Heiti TC", "黑體-繁", "Microsoft JhengHei", "微軟正黑體", "BiauKai", "DFKai-SB", "標楷體", "PMingLiU", "新細明體", "Noto Sans TC", "思源黑體", "Hiragino Sans GB", sans-serif', wordFont: '微軟正黑體' },
+    { id: 'pingfang', label: '蘋方 (PingFang TC)',              cssFamily: '"PingFang TC", "蘋方-繁", -apple-system, sans-serif', wordFont: 'PingFang TC' },
+    { id: 'heiti',    label: '黑體-繁 (Heiti TC)',              cssFamily: '"Heiti TC", "黑體-繁", sans-serif', wordFont: 'Heiti TC' },
+    { id: 'jhenghei', label: '微軟正黑體 (Microsoft JhengHei)', cssFamily: '"Microsoft JhengHei", "微軟正黑體", "Heiti TC", "黑體-繁", sans-serif', wordFont: '微軟正黑體' },
+    { id: 'kaiti',    label: '標楷體',                          cssFamily: '"BiauKai", "DFKai-SB", "標楷體", "標楷體-繁", KaiTi, "Apple LiSung", cursive', wordFont: '標楷體' },
+    { id: 'pmingliu', label: '新細明體 (PMingLiU)',             cssFamily: '"PMingLiU", "新細明體", "Times New Roman", serif', wordFont: '新細明體' },
+    { id: 'mingliu',  label: '細明體 (MingLiU)',                cssFamily: '"MingLiU", "細明體", "Times New Roman", serif', wordFont: '細明體' },
+    { id: 'simhei',   label: '黑體簡 (SimHei)',                 cssFamily: '"SimHei", "黑体", "Heiti TC", sans-serif', wordFont: 'SimHei' },
+    { id: 'simsun',   label: '宋體 (SimSun)',                   cssFamily: '"SimSun", "宋体", "PMingLiU", "新細明體", serif', wordFont: 'SimSun' },
+    { id: 'noto-tc',  label: '思源黑體 (Noto Sans TC)',         cssFamily: '"Noto Sans TC", "Noto Sans CJK TC", "思源黑體", "Noto Sans", sans-serif', wordFont: 'Noto Sans TC' },
+    { id: 'noto-serif', label: '思源宋體 (Noto Serif TC)',      cssFamily: '"Noto Serif TC", "Noto Serif CJK TC", "思源宋體", "Noto Serif", serif', wordFont: 'Noto Serif TC' },
+    { id: 'inter',    label: 'Inter (英文)',                    cssFamily: '"Inter", "Noto Sans TC", -apple-system, sans-serif', wordFont: 'Inter' },
+    { id: 'serif',    label: '襯線 (Serif + 新細明體)',         cssFamily: 'Georgia, "Times New Roman", "新細明體", "PMingLiU", serif', wordFont: '新細明體' },
+    { id: 'mono',     label: '等寬 (Consolas + 微軟正黑體)',    cssFamily: '"JetBrains Mono", Consolas, "微軟正黑體", monospace', wordFont: 'Consolas' },
+];
+const LS_FONT = 'md_font';
+const fontSelectBtn = document.getElementById('fontSelectBtn');
+const fontLabel     = document.getElementById('fontLabel');
+const fontDropdown  = document.getElementById('fontDropdown');
+let currentFontId   = localStorage.getItem(LS_FONT) || 'system';
+
+function getFontOption(id) {
+    return FONT_OPTIONS.find(f => f.id === id) || FONT_OPTIONS[0];
+}
+function getActiveWordFont() {
+    return (getFontOption(currentFontId).wordFont || '微軟正黑體').trim();
+}
+
+function applyFont() {
+    const opt = getFontOption(currentFontId);
+    document.documentElement.style.setProperty('--md-font', opt.cssFamily);
+    document.documentElement.style.setProperty('--md-heading-font', 'var(--md-font)');
+    if (fontLabel) fontLabel.textContent = opt.label;
+    if (fontDropdown) {
+        fontDropdown.querySelectorAll('.font-opt').forEach(btn => {
+            const active = btn.dataset.fontId === currentFontId;
+            btn.classList.toggle('active', active);
+            btn.classList.toggle('font-semibold', active);
+        });
+    }
+    localStorage.setItem(LS_FONT, currentFontId);
+}
+
+function buildFontDropdown() {
+    if (!fontDropdown) return;
+    fontDropdown.innerHTML = FONT_OPTIONS.map(opt => {
+        const styleAttr = opt.id === 'system' ? '' : ` style="font-family:${opt.cssFamily};"`;
+        return `<button data-font-id="${opt.id}" class="font-opt w-full text-left px-3.5 py-2 text-xs hover:bg-emerald-50 text-gray-700 hover:text-emerald-700 transition-colors"${styleAttr}>${escapeHtml(opt.label)}</button>`;
+    }).join('');
+    fontDropdown.querySelectorAll('.font-opt').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentFontId = btn.dataset.fontId;
+            applyFont();
+            fontDropdown.classList.add('hidden');
+        });
+    });
+}
+
+fontSelectBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    themeDropdown?.classList.add('hidden');
+    fontDropdown.classList.toggle('hidden');
+});
+
+buildFontDropdown();
+applyFont();
 
 // ========== Markdown 工具列 ==========
 function wrapSelection(before, after='', placeholder='文字') {
@@ -1140,6 +1213,7 @@ function headingLevelFromTag(tagName) {
 function parseInlineChildren(node, inherited = {}) {
     const { TextRun, ImageRun } = docx;
     const runs = [];
+    if (!inherited.font) inherited = { ...inherited, font: getActiveWordFont() };
     for (const child of Array.from(node.childNodes || [])) {
         if (child.nodeType === Node.TEXT_NODE) {
             const value = normalizeWordText(child.textContent);
@@ -1259,11 +1333,12 @@ function buildWordList(listEl, ordered = false, level = 0) {
 }
 function buildWordContent(nodes, context = {}) {
     const { Paragraph, PageBreak } = docx;
+    const wordFont = getActiveWordFont();
     const children = [];
     nodes.forEach(node => {
         if (node.nodeType === Node.TEXT_NODE) {
             const text = normalizeWordText(node.textContent).trim();
-            if (text) children.push(new Paragraph({ children: [new docx.TextRun(text)] }));
+            if (text) children.push(new Paragraph({ children: [new docx.TextRun({ text, font: wordFont })] }));
             return;
         }
         if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -1308,7 +1383,31 @@ async function exportWordDocument(filename) {
     const exportWrapper = snapshot.exportWrapper;
     try {
         const bodyChildren = buildWordContent(Array.from(snapshot.exportEl.childNodes));
+        const wordFont = getActiveWordFont();
+        const headingLevels = [
+            { key: 'heading1', size: 44, bold: true },
+            { key: 'heading2', size: 34, bold: true },
+            { key: 'heading3', size: 28, bold: true },
+            { key: 'heading4', size: 24, bold: true },
+            { key: 'heading5', size: 22, bold: true },
+            { key: 'heading6', size: 20, bold: true },
+        ];
+        const defaultStyles = {
+            document: {
+                run: { font: wordFont, size: 22 },
+                paragraph: { spacing: { line: 360, after: 120 } },
+            },
+        };
+        headingLevels.forEach(({ key, size, bold }) => {
+            defaultStyles[key] = {
+                run: { font: wordFont, size, bold },
+                paragraph: { spacing: { before: 240, after: 120, line: 360 } },
+            };
+        });
         const document = new Document({
+            creator: 'shenMD',
+            title: filename || 'Document',
+            styles: { default: defaultStyles },
             numbering: {
                 config: [{
                     reference: 'md-numbering',
