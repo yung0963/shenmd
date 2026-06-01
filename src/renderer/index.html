@@ -161,6 +161,7 @@
                         <input type="text" id="search-input" class="flex-1 outline-none bg-transparent" placeholder="搜尋 (Cmd+F)">
                         <div class="flex items-center gap-1 ml-1.5 border-l border-gray-200 pl-1.5 flex-shrink-0">
                             <button id="search-case-sensitive" class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 font-bold" title="區分大小寫 (Aa)">Aa</button>
+                            <button id="search-whole-word" class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 font-bold font-mono text-[10px]" title="全字匹配 (ab 不匹配 abc)">ab</button>
                             <button id="search-regex" class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 font-bold font-mono text-[10px]" title="使用正規表示式 (.*)">.*</button>
                         </div>
                     </div>
@@ -200,7 +201,10 @@
                 <span class="text-xs font-medium text-gray-400">Markdown</span>
                 <span id="edit-stats" class="text-xs text-gray-400"></span>
             </div>
-            <textarea id="editor" class="flex-1 w-full p-4 font-mono text-sm text-gray-800 bg-white outline-none resize-none leading-relaxed" placeholder="在此輸入 Markdown..."></textarea>
+            <div class="editor-wrap">
+                <div class="highlight-layer" aria-hidden="true"><div class="highlight-content"></div></div>
+                <textarea id="editor" placeholder="在此輸入 Markdown..." spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+            </div>
         </div>
 
         <!-- 拖曳分隔線 -->

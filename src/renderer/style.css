@@ -138,19 +138,116 @@ body {
   background-color: var(--ui-bg);
 }
 #editor {
-  background-color: var(--ui-bg);
-  color: var(--md-text);
+  background-color: transparent;
+  color: transparent;
+}
+#editor::placeholder {
+  color: var(--md-quote-text);
+  opacity: 0.55;
 }
 #editor.search-active {
   box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.45);
 }
-#editor.search-active.search-match-flash {
-  animation: searchMatchPulse 0.7s ease-out;
+
+/* Editor wrap with custom highlight layer (覆蓋在 textarea 之上) */
+.editor-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ui-bg);
 }
-@keyframes searchMatchPulse {
-  0%   { box-shadow: inset 0 0 0 3px rgba(251, 191, 36, 0.95); }
-  60%  { box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.7); }
-  100% { box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.45); }
+.editor-wrap textarea,
+.editor-wrap .highlight-layer,
+.editor-wrap .highlight-content {
+  margin: 0;
+  padding: 16px;
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.625;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  tab-size: 4;
+  border: 0;
+  outline: 0;
+  box-sizing: border-box;
+}
+.editor-wrap textarea {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--md-text);
+  overflow: auto;
+  resize: none;
+  z-index: 2;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  tab-size: 4;
+  padding: 16px;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  box-sizing: border-box;
+}
+.editor-wrap textarea::selection {
+  background: rgba(66, 184, 131, 0.35);
+}
+.editor-wrap .highlight-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  user-select: none;
+}
+.editor-wrap .highlight-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  color: var(--md-text);
+  will-change: transform;
+  min-height: 100%;
+}
+.editor-wrap mark {
+  background: rgba(250, 204, 21, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  padding: 0;
+}
+.editor-wrap mark.current {
+  background: rgba(245, 158, 11, 0.95);
+  outline: 1px solid #ea580c;
+  outline-offset: 0;
+  color: inherit;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+}
+.editor-wrap mark.flash {
+  animation: markFlashPulse 0.6s ease-out;
+}
+@keyframes markFlashPulse {
+  0%   { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.7); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+[data-theme="github-dark"] .editor-wrap mark {
+  background: rgba(250, 204, 21, 0.22);
+  color: inherit;
+}
+[data-theme="github-dark"] .editor-wrap mark.current {
+  background: rgba(245, 158, 11, 0.5);
+  outline-color: #fb923c;
+  color: inherit;
+}
+[data-theme="notion"] .editor-wrap mark.current {
+  outline-color: #f59e0b;
 }
 #md-toolbar {
   background: var(--ui-toolbar-bg);
@@ -456,8 +553,16 @@ body {
   background: var(--ui-toolbar-btn-hover);
 }
 #search-case-sensitive.active,
+#search-whole-word.active,
 #search-regex.active {
   background: color-mix(in srgb, var(--md-link) 20%, var(--ui-bg));
   color: var(--md-link);
   border: 1px solid var(--md-link);
+}
+#search-results-count.no-results {
+  color: #dc2626;
+  font-weight: 600;
+}
+[data-theme="github-dark"] #search-results-count.no-results {
+  color: #f87171;
 }
