@@ -132,6 +132,17 @@ body {
   background-color: var(--ui-bg);
   color: var(--md-text);
 }
+#editor.search-active {
+  box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.45);
+}
+#editor.search-active.search-match-flash {
+  animation: searchMatchPulse 0.7s ease-out;
+}
+@keyframes searchMatchPulse {
+  0%   { box-shadow: inset 0 0 0 3px rgba(251, 191, 36, 0.95); }
+  60%  { box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.7); }
+  100% { box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.45); }
+}
 #md-toolbar {
   background: var(--ui-toolbar-bg);
   border-bottom-color: var(--ui-toolbar-border);

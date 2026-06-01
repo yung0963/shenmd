@@ -1570,6 +1570,9 @@ function openSearchPanel(options = {}) {
         searchReplaceArrow.classList.remove('rotate-90');
     }
 
+    editor.readOnly = true;
+    editor.classList.add('search-active');
+
     searchInput.focus();
     searchInput.select();
 
@@ -1581,6 +1584,9 @@ function closeSearchPanel() {
     searchPanel.classList.remove('flex');
     searchMatches = [];
     activeSearchIndex = -1;
+    editor.readOnly = false;
+    editor.classList.remove('search-active');
+    editor.classList.remove('search-match-flash');
     editor.focus();
 }
 
@@ -1604,6 +1610,42 @@ function collectMatches(regex, text) {
         if (m.index === regex.lastIndex) regex.lastIndex++;
     }
     return matches;
+}
+
+function scrollEditorToMatch(matchStart) {
+    const textBefore = editor.value.substring(0, matchStart);
+    const lineCount = (textBefore.match(/\n/g) || []).length;
+
+    const cs = getComputedStyle(editor);
+    const lineHeight = parseFloat(cs.lineHeight) || 22;
+    const paddingTop = parseFloat(cs.paddingTop) || 0;
+
+    const matchLineY = (lineCount * lineHeight) + paddingTop;
+    const visibleHeight = editor.clientHeight || lineHeight;
+    const targetScroll = Math.max(0, matchLineY - visibleHeight / 2);
+
+    if (typeof editor.scrollTo === 'function') {
+        editor.scrollTo({ top: targetScroll, behavior: 'smooth' });
+    } else {
+        editor.scrollTop = targetScroll;
+    }
+}
+
+function flashEditorMatch() {
+    editor.classList.remove('search-match-flash');
+    void editor.offsetWidth;
+    editor.classList.add('search-match-flash');
+    clearTimeout(editor._searchFlashTimer);
+    editor._searchFlashTimer = setTimeout(() => {
+        editor.classList.remove('search-match-flash');
+    }, 700);
+}
+
+function applyMatchToEditor(match) {
+    editor.selectionStart = match.start;
+    editor.selectionEnd = match.end;
+    scrollEditorToMatch(match.start);
+    flashEditorMatch();
 }
 
 function runSearch() {
@@ -1642,14 +1684,7 @@ function runSearch() {
         activeSearchIndex = idx;
     }
 
-    const match = searchMatches[activeSearchIndex];
-    const prevActive = document.activeElement;
-    editor.focus();
-    editor.selectionStart = match.start;
-    editor.selectionEnd = match.end;
-    if (prevActive && prevActive !== editor) {
-        prevActive.focus();
-    }
+    applyMatchToEditor(searchMatches[activeSearchIndex]);
     searchResultsCount.textContent = `${activeSearchIndex + 1} / ${searchMatches.length}`;
 }
 
@@ -1663,11 +1698,8 @@ function navigateSearch(direction) {
     }
 
     const match = searchMatches[activeSearchIndex];
-    editor.focus();
-    editor.selectionStart = match.start;
-    editor.selectionEnd = match.end;
+    applyMatchToEditor(match);
     searchResultsCount.textContent = `${activeSearchIndex + 1} / ${searchMatches.length}`;
-    searchInput.focus();
 }
 
 function replaceActive() {
