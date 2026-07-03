@@ -46,8 +46,11 @@ export default {
 
 // ========== DOM 元素 ==========
 const editor         = document.getElementById('editor');
+const lineNumbers    = document.getElementById('line-numbers');
+const mdToolbar      = document.getElementById('md-toolbar');
 const previewContent = document.getElementById('preview-content');
 const previewWrapper = document.getElementById('preview-wrapper');
+const vditorHost     = document.getElementById('vditor-host');
 const exportPdfBtn   = document.getElementById('exportPdfBtn');
 const openPdfPanelBtn= document.getElementById('openPdfPanelBtn');
 const pdfPanel       = document.getElementById('pdf-panel');
@@ -65,11 +68,43 @@ const csvEncodingWrap = document.getElementById('csvEncodingWrap');
 const csvEncodingSelect = document.getElementById('csvEncodingSelect');
 const saveBtn        = document.getElementById('saveBtn');
 const exportExcelBtn = document.getElementById('exportExcelBtn');
+const exportWordBtn  = document.getElementById('exportWordBtn');
 const editorPanel    = document.getElementById('editor-panel');
 const previewPanel   = document.getElementById('preview-panel');
 const dragOverlay    = document.getElementById('drag-overlay');
 const tabsList       = document.getElementById('tabs-list');
 const newTabBtn      = document.getElementById('newTabBtn');
+const sidebarFolderName = document.getElementById('sidebarFolderName');
+const sidebarFolderPath = document.getElementById('sidebarFolderPath');
+const openFolderBtn  = document.getElementById('openFolderBtn');
+const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+const recentFilesList = document.getElementById('recentFilesList');
+const recentFoldersList = document.getElementById('recentFoldersList');
+const gitPanel = document.getElementById('gitPanel');
+const gitFloatingOverlay = document.getElementById('gitFloatingOverlay');
+const gitFloatingPanel = document.getElementById('gitFloatingPanel');
+const gitFloatingBody = document.getElementById('gitFloatingBody');
+const gitFloatingSubtitle = document.getElementById('gitFloatingSubtitle');
+const gitFloatingCloseBtn = document.getElementById('gitFloatingCloseBtn');
+const folderTree     = document.getElementById('folderTree');
+const editorModeLabel = document.getElementById('editorModeLabel');
+const previewModeLabel = document.getElementById('previewModeLabel');
+const readonlyOverlay = document.getElementById('readonlyOverlay');
+const terminalDrawer = document.getElementById('terminal-drawer');
+const terminalWidthHandle = document.getElementById('terminal-width-handle');
+const terminalMount = document.getElementById('terminalMount');
+const terminalFocusBtn = document.getElementById('terminalFocusBtn');
+const terminalRestartBtn = document.getElementById('terminalRestartBtn');
+const terminalClearBtn = document.getElementById('terminalClearBtn');
+const terminalCloseBtn = document.getElementById('terminalCloseBtn');
+const terminalStatusText = document.getElementById('terminalStatusText');
+const terminalCwdText = document.getElementById('terminalCwdText');
+const terminalErrorBanner = document.getElementById('terminalErrorBanner');
+const terminalCdBtn = document.getElementById('terminalCdBtn');
+const terminalInsertFileBtn = document.getElementById('terminalInsertFileBtn');
+const terminalInsertDirBtn = document.getElementById('terminalInsertDirBtn');
+const terminalCodexBtn = document.getElementById('terminalCodexBtn');
+const terminalPiBtn = document.getElementById('terminalPiBtn');
 
 // 搜尋與取代 DOM
 const searchPanel        = document.getElementById('search-panel');
@@ -99,12 +134,189 @@ let suppressWatchReloadUntil = 0;
 let activeTabId = null;
 let nextTabId = 1;
 const tabs = [];
+let appPaths = null;
+let terminal = null;
+let terminalFitAddon = null;
+let terminalReady = false;
+let terminalStarting = false;
+let terminalVisible = false;
+let terminalStatus = { running: false, cwd: null, error: null };
+let panelWidths = { editor: 50, preview: 25, terminal: 25 };
+let isTerminalWidthResizing = false;
+let vditorInstance = null;
+let vditorInitPromise = null;
+let suppressVditorInput = false;
+let vditorPasteBound = false;
+let vditorResolveTimer = null;
+let markdownPreviewRenderSeq = 0;
+let currentFolderPath = null;
+let recentFilesState = [];
+let recentFolders = [];
+let gitState = {
+    loading: false,
+    available: true,
+    isRepo: false,
+    targetDir: null,
+    repoRoot: null,
+    repoName: null,
+    branch: null,
+    changedFiles: 0,
+    stagedFiles: 0,
+    unstagedFiles: 0,
+    untrackedFiles: 0,
+    insertions: 0,
+    deletions: 0,
+    ahead: 0,
+    behind: 0,
+    files: [],
+    error: '',
+};
+let gitFloatingOpen = false;
+let selectedSidebarPath = null;
+let sidebarCollapsed = false;
+const treeState = {
+    expanded: new Set(),
+    loaded: new Map(),
+};
+const LS_SIDEBAR_COLLAPSED = 'md_sidebar_collapsed';
+const LS_SIDEBAR_SECTIONS = 'md_sidebar_sections';
+let sidebarSections = {
+    'recent-files': true,
+    'recent-folders': true,
+    'git-panel': true,
+    'folder-tree': true,
+};
+
+const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn']);
+const TEXT_EXTENSIONS = new Set(['txt']);
+const CSV_EXTENSIONS = new Set(['csv']);
+const PDF_EXTENSIONS = new Set(['pdf']);
+const SUPPORTED_FILE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, ...TEXT_EXTENSIONS, ...CSV_EXTENSIONS, ...PDF_EXTENSIONS]);
+const VDITOR_CDN = 'https://cdn.jsdelivr.net/npm/vditor@3.11.2';
+const VDITOR_TOOLBAR = ['bold', 'italic', 'strike', '|', 'quote', 'list', 'ordered-list', '|', 'inline-code', 'code', '|', 'link', 'table', '|', 'undo', 'redo'];
 
 // 搜尋狀態
 let searchMatches = [];
 let activeSearchIndex = -1;
 
 function scheduleAutoSave() {}
+
+function shellEscape(value) {
+    return `'${String(value || '').replace(/'/g, `'\\''`)}'`;
+}
+
+function getFileExt(filePath = '') {
+    const base = pathBasename(String(filePath));
+    const idx = base.lastIndexOf('.');
+    if (idx <= 0 || idx === base.length - 1) return '';
+    return base.slice(idx + 1).toLowerCase();
+}
+
+function getFileTypeFromExt(ext = '') {
+    if (CSV_EXTENSIONS.has(ext)) return 'csv';
+    if (PDF_EXTENSIONS.has(ext)) return 'pdf';
+    if (TEXT_EXTENSIONS.has(ext)) return 'text';
+    return 'markdown';
+}
+
+function supportsFileExtension(ext = '') {
+    return SUPPORTED_FILE_EXTENSIONS.has(ext);
+}
+
+function isPdfTab(tab = getActiveTab()) {
+    return tab?.fileType === 'pdf';
+}
+
+function isTextLikeTab(tab = getActiveTab()) {
+    return ['markdown', 'text', 'csv'].includes(tab?.fileType || currentFileType);
+}
+
+function isTerminalFocused() {
+    const active = document.activeElement;
+    return Boolean(active && terminalMount.contains(active));
+}
+
+function isMarkdownTab(tab = getActiveTab()) {
+    return (tab?.fileType || currentFileType) === 'markdown';
+}
+
+function shouldUseVditorPreview(tab = getActiveTab()) {
+    return isMarkdownTab(tab) && visiblePanels.has('preview');
+}
+
+function isVditorActive() {
+    return shouldUseVditorPreview() && !vditorHost.classList.contains('hidden');
+}
+
+function getVditorThemeName() {
+    return document.documentElement.getAttribute('data-theme') === 'github-dark' ? 'dark' : 'classic';
+}
+
+function updatePreviewSurfaceVisibility(useVditor) {
+    previewWrapper.classList.toggle('vditor-active', useVditor);
+    previewContent.classList.toggle('hidden', useVditor);
+    vditorHost.classList.toggle('hidden', !useVditor);
+    vditorHost.classList.toggle('active', useVditor);
+}
+
+function scheduleResolveVditorImages() {
+    clearTimeout(vditorResolveTimer);
+    vditorResolveTimer = setTimeout(() => {
+        if (!vditorInstance) return;
+        resolveImages(vditorHost).catch(err => console.warn('Vditor 圖片解析失敗:', err));
+    }, 60);
+}
+
+function getTerminalContextForTab(tab = getActiveTab()) {
+    const fallbackDir = appPaths?.documents || null;
+    return {
+        filePath: tab?.filePath || null,
+        dirPath: tab?.dirPath || fallbackDir,
+        fileType: tab?.fileType || null,
+    };
+}
+
+function getTerminalWorkingDir() {
+    const context = getTerminalContextForTab();
+    return context.dirPath || appPaths?.documents || null;
+}
+
+function setTerminalError(message = '') {
+    if (!message) {
+        terminalErrorBanner.textContent = '';
+        terminalErrorBanner.classList.add('hidden');
+        return;
+    }
+    terminalErrorBanner.textContent = message;
+    terminalErrorBanner.classList.remove('hidden');
+}
+
+function updateTerminalActionButtons() {
+    const tab = getActiveTab();
+    const hasFile = Boolean(tab?.filePath);
+    const hasDir = Boolean(tab?.dirPath || appPaths?.documents);
+    terminalCdBtn.disabled = !hasDir;
+    terminalInsertDirBtn.disabled = !hasDir;
+    terminalInsertFileBtn.disabled = !hasFile;
+    terminalCodexBtn.disabled = !hasFile;
+    terminalPiBtn.disabled = !hasFile;
+}
+
+function renderTerminalStatus(meta = {}) {
+    const { running = terminalStatus.running, cwd = terminalStatus.cwd, shell = terminalStatus.shell, error = terminalStatus.error } = meta;
+    terminalStatus = { ...terminalStatus, running, cwd, shell, error };
+    terminalStatusText.textContent = error
+        ? `錯誤: ${error}`
+        : running
+            ? (shell ? `執行中 · ${shell}` : '執行中')
+            : '未啟動';
+    terminalCwdText.textContent = cwd || getTerminalWorkingDir() || '-';
+}
+
+function syncTerminalContext() {
+    updateTerminalActionButtons();
+    return window.electronAPI.terminalUpdateContext(getTerminalContextForTab());
+}
 
 function createTabState(overrides = {}) {
     return {
@@ -115,6 +327,7 @@ function createTabState(overrides = {}) {
         fileExt: '',
         isModified: false,
         content: '',
+        previewMeta: null,
         title: '未命名',
         csvEncoding: csvEncodingSelect.value || 'auto',
         externalChanged: false,
@@ -128,6 +341,617 @@ function getActiveTab() {
 
 function updateTabTitle(tab) {
     tab.title = tab.filePath ? pathBasename(tab.filePath) : '未命名';
+}
+
+function normalizePath(value = '') {
+    return String(value).replace(/\\/g, '/');
+}
+
+function isPathInsideFolder(targetPath, folderPath) {
+    if (!targetPath || !folderPath) return false;
+    const target = normalizePath(targetPath);
+    const folder = normalizePath(folderPath).replace(/\/+$/, '');
+    return target === folder || target.startsWith(folder + '/');
+}
+
+function setSidebarSelection(filePath) {
+    selectedSidebarPath = filePath || null;
+    renderSidebar();
+}
+
+function formatSidebarLabel(filePath) {
+    return pathBasename(filePath || '') || filePath || '未命名';
+}
+
+function getSidebarItemClass(active) {
+    return active ? 'sidebar-item active' : 'sidebar-item';
+}
+
+function getFileIconSvg(ext = '') {
+    const tone = CSV_EXTENSIONS.has(ext)
+        ? 'csv'
+        : TEXT_EXTENSIONS.has(ext)
+            ? 'text'
+            : PDF_EXTENSIONS.has(ext)
+                ? 'pdf'
+                : 'markdown';
+    return `
+        <span class="file-icon file-icon-${tone}" aria-hidden="true">
+            <svg viewBox="0 0 24 24" class="file-icon-svg">
+                <path d="M7 3.5h7l5 5V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5A1.5 1.5 0 0 1 7.5 3.5Z" class="file-icon-paper"></path>
+                <path d="M14 3.5v5h5" class="file-icon-fold"></path>
+                <path d="M8.6 15.3h6.8" class="file-icon-line"></path>
+                <path d="M8.6 18h5.2" class="file-icon-line"></path>
+            </svg>
+        </span>
+    `;
+}
+
+function getFolderIconSvg(isOpen = false) {
+    return `
+        <span class="folder-icon ${isOpen ? 'open' : ''}" aria-hidden="true">
+            <svg viewBox="0 0 24 24" class="folder-icon-svg">
+                <path d="M3.5 7.8A2.3 2.3 0 0 1 5.8 5.5h4l1.7 1.9h6.7a2.3 2.3 0 0 1 2.3 2.3v1.1H3.5Z" class="folder-icon-tab"></path>
+                <path d="M3.5 10h17l-1.6 7.7a2.3 2.3 0 0 1-2.2 1.8H6.2A2.3 2.3 0 0 1 4 17.6Z" class="folder-icon-body"></path>
+            </svg>
+        </span>
+    `;
+}
+
+function getRecentDisplayList(list) {
+    return Array.isArray(list) ? list.slice(0, 5) : [];
+}
+
+function restoreSidebarState() {
+    sidebarCollapsed = localStorage.getItem(LS_SIDEBAR_COLLAPSED) === '1';
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LS_SIDEBAR_SECTIONS) || '{}');
+        sidebarSections = {
+            ...sidebarSections,
+            ...parsed,
+        };
+    } catch (e) {}
+}
+
+function saveSidebarSectionState() {
+    localStorage.setItem(LS_SIDEBAR_SECTIONS, JSON.stringify(sidebarSections));
+}
+
+function applySidebarChrome() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar?.classList.toggle('collapsed', sidebarCollapsed);
+    if (toggleSidebarBtn) toggleSidebarBtn.textContent = sidebarCollapsed ? '▸' : '◂';
+    localStorage.setItem(LS_SIDEBAR_COLLAPSED, sidebarCollapsed ? '1' : '0');
+    document.querySelectorAll('[data-section]').forEach(section => {
+        const key = section.dataset.section;
+        const open = sidebarSections[key] !== false;
+        section.classList.toggle('collapsed', !open);
+    });
+}
+
+function toggleSidebarSection(key) {
+    sidebarSections[key] = sidebarSections[key] === false;
+    saveSidebarSectionState();
+    applySidebarChrome();
+}
+
+function enableDragScroll(container) {
+    if (!container || container.dataset.dragScrollBound === '1') return;
+    container.dataset.dragScrollBound = '1';
+    let isDragging = false;
+    let moved = false;
+    let startY = 0;
+    let startScroll = 0;
+    let pointerId = null;
+    container.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        isDragging = true;
+        moved = false;
+        pointerId = event.pointerId;
+        startY = event.clientY;
+        startScroll = container.scrollTop;
+    });
+    container.addEventListener('pointermove', (event) => {
+        if (!isDragging || event.pointerId !== pointerId) return;
+        const delta = event.clientY - startY;
+        if (!moved && Math.abs(delta) < 6) return;
+        if (!moved) {
+            moved = true;
+            container.classList.add('drag-scrolling');
+            container.setPointerCapture?.(event.pointerId);
+        }
+        container.scrollTop = startScroll - delta;
+    });
+    const stopDrag = (event) => {
+        if (!isDragging || event.pointerId !== pointerId) return;
+        isDragging = false;
+        moved = false;
+        pointerId = null;
+        container.classList.remove('drag-scrolling');
+        container.releasePointerCapture?.(event.pointerId);
+    };
+    container.addEventListener('pointerup', stopDrag);
+    container.addEventListener('pointercancel', stopDrag);
+    container.addEventListener('mouseleave', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        container.classList.remove('drag-scrolling');
+    });
+}
+
+async function ensureTreeLoaded(dirPath) {
+    if (!dirPath || treeState.loaded.has(dirPath)) return treeState.loaded.get(dirPath) || [];
+    const result = await window.electronAPI.readDir(dirPath);
+    if (!result?.success) {
+        treeState.loaded.set(dirPath, []);
+        return [];
+    }
+    const nextEntries = result.list
+        .filter(entry => entry.isDirectory || (entry.isFile && supportsFileExtension(getFileExt(entry.name))))
+        .map(entry => ({
+            ...entry,
+            path: entry.path || null,
+        }));
+    treeState.loaded.set(dirPath, nextEntries);
+    return nextEntries;
+}
+
+async function loadDirectoryEntries(dirPath) {
+    const entries = await ensureTreeLoaded(dirPath);
+    return entries.map(entry => ({
+        ...entry,
+        path: entry.path || `${dirPath.replace(/[\\/]$/, '')}/${entry.name}`.replace(/\\/g, '/'),
+    }));
+}
+
+function renderRecentFileItems(list, container, emptyText, onClick) {
+    if (!container) return;
+    const visibleList = getRecentDisplayList(list);
+    if (!visibleList.length) {
+        container.innerHTML = `<div class="sidebar-empty">${emptyText}</div>`;
+        return;
+    }
+    container.innerHTML = '';
+    visibleList.forEach(filePath => {
+        const button = document.createElement('button');
+        const active = selectedSidebarPath === filePath || currentFilePath === filePath;
+        button.className = getSidebarItemClass(active);
+        button.type = 'button';
+        button.innerHTML = `
+            <span class="sidebar-item-icon">${getFileIconSvg(getFileExt(filePath))}</span>
+            <span class="sidebar-item-text">${escapeHtml(formatSidebarLabel(filePath))}</span>
+        `;
+        button.title = filePath;
+        button.addEventListener('click', () => onClick(filePath));
+        container.appendChild(button);
+    });
+}
+
+function getGitTargetPath() {
+    const tab = getActiveTab();
+    return currentFolderPath || tab?.filePath || tab?.dirPath || null;
+}
+
+function escapeGitPathLabel(filePath = '') {
+    const normalized = String(filePath || '').trim();
+    return normalized.length > 42 ? `…${normalized.slice(-42)}` : normalized;
+}
+
+function getGitBranchMeta() {
+    return [
+        gitState.ahead > 0 ? `↑${gitState.ahead}` : '',
+        gitState.behind > 0 ? `↓${gitState.behind}` : '',
+    ].filter(Boolean).join(' ');
+}
+
+function getGitActionFlags() {
+    const currentTab = getActiveTab();
+    return {
+        canRestoreCurrent: Boolean(currentTab?.filePath && isPathInsideFolder(currentTab.filePath, gitState.repoRoot)),
+        canCommit: gitState.changedFiles > 0,
+        canPush: gitState.ahead > 0,
+    };
+}
+
+function renderGitPanel() {
+    if (!gitPanel) return;
+    if (gitState.loading) {
+        gitPanel.innerHTML = '<div class="sidebar-empty">讀取 Git 狀態中…</div>';
+        renderGitFloatingPanel();
+        return;
+    }
+    if (!gitState.targetDir) {
+        gitPanel.innerHTML = '<button type="button" class="git-summary-btn" data-git-action="open">Git 尚未連結</button>';
+        bindGitPanelActions(gitPanel);
+        renderGitFloatingPanel();
+        return;
+    }
+    if (!gitState.available) {
+        gitPanel.innerHTML = `<button type="button" class="git-summary-btn" data-git-action="open">${escapeHtml(gitState.error || '系統找不到 Git')}</button>`;
+        bindGitPanelActions(gitPanel);
+        renderGitFloatingPanel();
+        return;
+    }
+    if (!gitState.isRepo) {
+        gitPanel.innerHTML = `
+            <button type="button" class="git-summary-btn" data-git-action="open">
+                <span>
+                    <strong>尚未啟用 Git</strong>
+                    <small>${escapeHtml(escapeGitPathLabel(gitState.targetDir))}</small>
+                </span>
+                <span class="git-summary-pill">初始化</span>
+            </button>
+        `;
+        bindGitPanelActions(gitPanel);
+        renderGitFloatingPanel();
+        return;
+    }
+
+    const branchMeta = getGitBranchMeta();
+    gitPanel.innerHTML = `
+        <button type="button" class="git-summary-btn" data-git-action="open">
+            <span>
+                <strong>${escapeHtml(gitState.repoName || 'Git 倉庫')}</strong>
+                <small>${escapeHtml(gitState.branch || 'HEAD')}${branchMeta ? ` · ${escapeHtml(branchMeta)}` : ''}</small>
+            </span>
+            <span class="git-summary-stats">
+                <span class="add">+${gitState.insertions}</span>
+                <span class="del">-${gitState.deletions}</span>
+                <span>${gitState.changedFiles} 檔</span>
+            </span>
+        </button>
+    `;
+    bindGitPanelActions(gitPanel);
+    renderGitFloatingPanel();
+}
+
+function renderGitFloatingPanel() {
+    if (!gitFloatingBody || !gitFloatingSubtitle) return;
+    const location = gitState.repoRoot || gitState.targetDir || '未選擇資料夾';
+    gitFloatingSubtitle.textContent = location;
+
+    if (gitState.loading) {
+        gitFloatingBody.innerHTML = '<div class="sidebar-empty">讀取 Git 狀態中…</div>';
+        return;
+    }
+    if (!gitState.targetDir) {
+        gitFloatingBody.innerHTML = '<div class="sidebar-empty">開啟資料夾或檔案後，這裡會顯示 Git 狀態。</div>';
+        return;
+    }
+    if (!gitState.available) {
+        gitFloatingBody.innerHTML = `<div class="sidebar-empty">${escapeHtml(gitState.error || '系統找不到 Git')}</div>`;
+        return;
+    }
+    if (!gitState.isRepo) {
+        gitFloatingBody.innerHTML = `
+            <div class="git-card git-card-floating">
+                <div class="git-card-head">
+                    <div class="git-card-title">尚未啟用 Git</div>
+                </div>
+                <div class="git-empty-copy">這個資料夾目前不是 Git 倉庫。若你想用 Git 管理回復，可以直接初始化。</div>
+                <div class="git-card-row">
+                    <span class="git-card-label">位置</span>
+                    <span class="git-card-value" title="${escapeHtml(gitState.targetDir)}">${escapeHtml(escapeGitPathLabel(gitState.targetDir))}</span>
+                </div>
+                <div class="git-card-actions">
+                    <button type="button" class="git-action-btn primary" data-git-action="init">初始化 Git</button>
+                    <button type="button" class="git-action-btn" data-git-action="refresh">重新整理</button>
+                </div>
+            </div>
+        `;
+        bindGitPanelActions(gitFloatingBody);
+        return;
+    }
+
+    const branchMeta = getGitBranchMeta();
+    const fileItems = Array.isArray(gitState.files) && gitState.files.length
+        ? `<ol class="git-file-list">${gitState.files.map(item => `<li>${escapeHtml(item.path)}</li>`).join('')}</ol>`
+        : '<div class="git-empty-copy">目前工作樹乾淨。</div>';
+    const { canRestoreCurrent, canCommit, canPush } = getGitActionFlags();
+
+    gitFloatingBody.innerHTML = `
+        <div class="git-card git-card-floating">
+            <div class="git-card-head">
+                <div>
+                    <div class="git-card-title">${escapeHtml(gitState.repoName || 'Git 倉庫')}</div>
+                    <div class="git-card-subtitle" title="${escapeHtml(gitState.repoRoot || '')}">${escapeHtml(escapeGitPathLabel(gitState.repoRoot || ''))}</div>
+                </div>
+                <div class="git-diff-total">
+                    <span class="add">+${gitState.insertions}</span>
+                    <span class="del">-${gitState.deletions}</span>
+                </div>
+            </div>
+            <div class="git-branch-row">
+                <span class="git-branch-pill">⑂ ${escapeHtml(gitState.branch || 'HEAD')}</span>
+                <span class="git-card-value">${branchMeta || '本機'}</span>
+            </div>
+            <div class="git-card-row">
+                <span class="git-card-label">變更</span>
+                <span class="git-card-value">${gitState.changedFiles} 檔</span>
+            </div>
+            <div class="git-card-row">
+                <span class="git-card-label">狀態</span>
+                <span class="git-card-value">staged ${gitState.stagedFiles} / unstaged ${gitState.unstagedFiles} / untracked ${gitState.untrackedFiles}</span>
+            </div>
+            ${fileItems}
+            <div class="git-card-actions">
+                <button type="button" class="git-action-btn" data-git-action="refresh">重新整理</button>
+                <button type="button" class="git-action-btn danger" data-git-action="restore-file" ${canRestoreCurrent ? '' : 'disabled'}>回復目前檔案</button>
+                <button type="button" class="git-action-btn danger" data-git-action="restore-all" ${gitState.changedFiles ? '' : 'disabled'}>全部回復</button>
+                <button type="button" class="git-action-btn primary" data-git-action="commit" ${canCommit ? '' : 'disabled'}>送交</button>
+                <button type="button" class="git-action-btn" data-git-action="push" ${canPush ? '' : 'disabled'}>推送</button>
+            </div>
+        </div>
+    `;
+    bindGitPanelActions(gitFloatingBody);
+}
+
+function openGitFloatingPanel() {
+    gitFloatingOpen = true;
+    renderGitFloatingPanel();
+    gitFloatingOverlay?.classList.remove('hidden');
+}
+
+function closeGitFloatingPanel() {
+    gitFloatingOpen = false;
+    gitFloatingOverlay?.classList.add('hidden');
+}
+
+async function refreshGitState(options = {}) {
+    if (!gitPanel) return;
+    const { quiet = false } = options;
+    const targetPath = getGitTargetPath();
+    gitState = {
+        ...gitState,
+        loading: true,
+        targetDir: targetPath ? (currentFolderPath || getActiveTab()?.dirPath || targetPath) : null,
+        error: '',
+    };
+    renderGitPanel();
+    const result = targetPath
+        ? await window.electronAPI.gitGetContext(targetPath)
+        : { success: true, available: true, isRepo: false, targetDir: null };
+    if (!result?.success && !quiet) {
+        showSaveToast(result?.error || '讀取 Git 狀態失敗');
+    }
+    gitState = {
+        loading: false,
+        available: result?.available !== false,
+        isRepo: Boolean(result?.isRepo),
+        targetDir: result?.targetDir || getGitTargetPath(),
+        repoRoot: result?.repoRoot || null,
+        repoName: result?.repoName || null,
+        branch: result?.branch || null,
+        changedFiles: result?.changedFiles || 0,
+        stagedFiles: result?.stagedFiles || 0,
+        unstagedFiles: result?.unstagedFiles || 0,
+        untrackedFiles: result?.untrackedFiles || 0,
+        insertions: result?.insertions || 0,
+        deletions: result?.deletions || 0,
+        ahead: result?.ahead || 0,
+        behind: result?.behind || 0,
+        files: Array.isArray(result?.files) ? result.files : [],
+        error: result?.error || '',
+    };
+    renderGitPanel();
+}
+
+async function gitInitCurrentTarget() {
+    const targetPath = getGitTargetPath();
+    if (!targetPath) return;
+    if (!confirm('這個資料夾尚未啟用 Git，要現在初始化嗎？')) return;
+    const result = await window.electronAPI.gitInitRepo(targetPath);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 初始化失敗');
+        return;
+    }
+    showSaveToast('已初始化 Git 倉庫');
+    await refreshGitState();
+}
+
+async function gitCommitCurrentRepo() {
+    if (!gitState.isRepo || !gitState.repoRoot) return;
+    const message = (prompt('輸入 commit 訊息', 'chore: update notes') || '').trim();
+    if (!message) return;
+    const result = await window.electronAPI.gitCommit(gitState.repoRoot, message);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 送交失敗');
+        return;
+    }
+    showSaveToast('已送交變更');
+    await refreshGitState();
+}
+
+async function gitPushCurrentRepo() {
+    if (!gitState.isRepo || !gitState.repoRoot) return;
+    const result = await window.electronAPI.gitPush(gitState.repoRoot);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 推送失敗');
+        return;
+    }
+    showSaveToast('已推送');
+    await refreshGitState();
+}
+
+async function gitRestoreCurrentFile() {
+    const tab = getActiveTab();
+    if (!gitState.isRepo || !gitState.repoRoot || !tab?.filePath) return;
+    if (!confirm(`要把目前檔案回復到 HEAD 嗎？\n\n${tab.title}`)) return;
+    const result = await window.electronAPI.gitRestorePath(gitState.repoRoot, tab.filePath);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 回復失敗');
+        return;
+    }
+    await reloadTabFromDisk(tab, { notify: false });
+    showSaveToast('已回復目前檔案');
+    await refreshGitState();
+}
+
+async function gitRestoreAllFiles() {
+    if (!gitState.isRepo || !gitState.repoRoot) return;
+    const warning = '要把整個 Git 倉庫回復到 HEAD 嗎？\n\n這會丟棄尚未提交的已追蹤變更，並清掉未追蹤檔案。';
+    if (!confirm(warning)) return;
+    const result = await window.electronAPI.gitRestoreAll(gitState.repoRoot);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 全部回復失敗');
+        return;
+    }
+    for (const tab of tabs) {
+        if (!tab.filePath || !isPathInsideFolder(tab.filePath, gitState.repoRoot)) continue;
+        await reloadTabFromDisk(tab, { notify: false });
+    }
+    showSaveToast('已回復整個倉庫');
+    await refreshGitState();
+}
+
+function bindGitPanelActions(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-git-action]').forEach(button => {
+        button.addEventListener('click', async () => {
+            const action = button.dataset.gitAction;
+            if (action === 'open') openGitFloatingPanel();
+            if (action === 'refresh') await refreshGitState({ quiet: true });
+            if (action === 'init') await gitInitCurrentTarget();
+            if (action === 'commit') await gitCommitCurrentRepo();
+            if (action === 'push') await gitPushCurrentRepo();
+            if (action === 'restore-file') await gitRestoreCurrentFile();
+            if (action === 'restore-all') await gitRestoreAllFiles();
+        });
+    });
+}
+
+gitFloatingCloseBtn?.addEventListener('click', closeGitFloatingPanel);
+gitFloatingOverlay?.addEventListener('click', (event) => {
+    if (event.target === gitFloatingOverlay) closeGitFloatingPanel();
+});
+
+async function renderTreeNode(dirPath, depth = 0) {
+    const entries = await loadDirectoryEntries(dirPath);
+    const fragment = document.createDocumentFragment();
+    entries.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'tree-node';
+        const isExpanded = entry.isDirectory && treeState.expanded.has(entry.path);
+        const isActive = selectedSidebarPath === entry.path || currentFilePath === entry.path;
+        row.innerHTML = `
+            <button class="${getSidebarItemClass(isActive)} tree-item" data-path="${escapeHtml(entry.path)}" data-depth="${depth}" style="--tree-depth:${depth}">
+                <span class="tree-caret">${entry.isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
+                <span class="sidebar-item-icon">${entry.isDirectory ? getFolderIconSvg(isExpanded) : getFileIconSvg(getFileExt(entry.name))}</span>
+                <span class="sidebar-item-text">${escapeHtml(entry.name)}</span>
+            </button>
+        `;
+        fragment.appendChild(row);
+
+        if (entry.isDirectory && isExpanded) {
+            const children = document.createElement('div');
+            children.className = 'tree-children';
+            row.appendChild(children);
+            children.appendChild(document.createElement('div'));
+        }
+    });
+    return fragment;
+}
+
+async function hydrateExpandedTree() {
+    if (!currentFolderPath) {
+        folderTree.innerHTML = '<div class="sidebar-empty">尚未開啟資料夾</div>';
+        return;
+    }
+    const entries = await loadDirectoryEntries(currentFolderPath);
+    if (!entries.length) {
+        folderTree.innerHTML = '<div class="sidebar-empty">資料夾內沒有支援的檔案</div>';
+        return;
+    }
+    folderTree.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    for (const entry of entries) {
+        const row = document.createElement('div');
+        row.className = 'tree-node';
+        const isExpanded = entry.isDirectory && treeState.expanded.has(entry.path);
+        const isActive = selectedSidebarPath === entry.path || currentFilePath === entry.path;
+        const button = document.createElement('button');
+        button.className = `${getSidebarItemClass(isActive)} tree-item`;
+        button.type = 'button';
+        button.dataset.path = entry.path;
+        button.style.setProperty('--tree-depth', '0');
+        button.innerHTML = `
+            <span class="tree-caret">${entry.isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
+            <span class="sidebar-item-icon">${entry.isDirectory ? getFolderIconSvg(isExpanded) : getFileIconSvg(getFileExt(entry.name))}</span>
+            <span class="sidebar-item-text">${escapeHtml(entry.name)}</span>
+        `;
+        row.appendChild(button);
+        if (entry.isDirectory && isExpanded) {
+            const childWrap = document.createElement('div');
+            childWrap.className = 'tree-children';
+            row.appendChild(childWrap);
+            childWrap.appendChild(await buildTreeBranch(entry.path, 1));
+        }
+        fragment.appendChild(row);
+    }
+    folderTree.appendChild(fragment);
+}
+
+async function buildTreeBranch(dirPath, depth) {
+    const wrapper = document.createDocumentFragment();
+    const entries = await loadDirectoryEntries(dirPath);
+    for (const entry of entries) {
+        const row = document.createElement('div');
+        row.className = 'tree-node';
+        const isExpanded = entry.isDirectory && treeState.expanded.has(entry.path);
+        const isActive = selectedSidebarPath === entry.path || currentFilePath === entry.path;
+        const button = document.createElement('button');
+        button.className = `${getSidebarItemClass(isActive)} tree-item`;
+        button.type = 'button';
+        button.dataset.path = entry.path;
+        button.style.setProperty('--tree-depth', String(depth));
+        button.innerHTML = `
+            <span class="tree-caret">${entry.isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
+            <span class="sidebar-item-icon">${entry.isDirectory ? getFolderIconSvg(isExpanded) : getFileIconSvg(getFileExt(entry.name))}</span>
+            <span class="sidebar-item-text">${escapeHtml(entry.name)}</span>
+        `;
+        row.appendChild(button);
+        if (entry.isDirectory && isExpanded) {
+            const childWrap = document.createElement('div');
+            childWrap.className = 'tree-children';
+            row.appendChild(childWrap);
+            childWrap.appendChild(await buildTreeBranch(entry.path, depth + 1));
+        }
+        wrapper.appendChild(row);
+    }
+    return wrapper;
+}
+
+async function renderSidebar() {
+    if (sidebarFolderName) sidebarFolderName.textContent = currentFolderPath ? formatSidebarLabel(currentFolderPath) : '未開啟資料夾';
+    if (sidebarFolderPath) sidebarFolderPath.textContent = currentFolderPath || '使用 Cmd+Shift+O 或按鈕開啟資料夾';
+    renderGitPanel();
+    renderRecentFileItems(recentFilesState, recentFilesList, '尚無最近檔案', async (filePath) => {
+        await openFile(filePath);
+    });
+    renderRecentFileItems(recentFolders, recentFoldersList, '尚無最近資料夾', async (folderPath) => {
+        await openFolder(folderPath);
+    });
+    await hydrateExpandedTree();
+    applySidebarChrome();
+    enableDragScroll(recentFilesList);
+    enableDragScroll(recentFoldersList);
+    enableDragScroll(folderTree);
+}
+
+async function openFolder(folderPath, options = {}) {
+    if (!folderPath) return;
+    await window.electronAPI.addRecentFolder(folderPath);
+    currentFolderPath = folderPath;
+    treeState.loaded.clear();
+    treeState.expanded.clear();
+    treeState.expanded.add(folderPath);
+    if (!options.skipRecentRefresh) {
+        recentFolders = await window.electronAPI.getRecentFolders();
+    }
+    recentFilesState = await window.electronAPI.getRecentFiles();
+    await renderSidebar();
+    await refreshGitState({ quiet: true });
+    showSaveToast('已開啟資料夾 ' + formatSidebarLabel(folderPath));
 }
 
 function renderTabs() {
@@ -148,6 +972,7 @@ function renderTabs() {
 function syncEditorToActiveTab() {
     const tab = getActiveTab();
     if (!tab) return;
+    if (tab.fileType === 'pdf') return;
     tab.content = editor.value;
     tab.csvEncoding = csvEncodingSelect.value;
 }
@@ -159,11 +984,177 @@ function applyTabToEditor(tab) {
     currentFileType = tab.fileType;
     currentFileExt = tab.fileExt;
     isModified = tab.isModified;
-    editor.value = tab.content;
+    setEditorValue(tab.content, { syncTab: false, syncVditor: false, refreshPreview: false });
     csvEncodingSelect.value = tab.csvEncoding || 'auto';
     statFile.textContent = tab.title;
     updateExportButtons();
+    updateEditorModeUI(tab);
     setModified(tab.isModified, { skipTabSync: true, silentTitle: true });
+}
+
+function updateEditorModeUI(tab = getActiveTab()) {
+    const fileType = tab?.fileType || currentFileType;
+    const isPdf = fileType === 'pdf';
+    editor.readOnly = isPdf;
+    readonlyOverlay.classList.toggle('hidden', !isPdf);
+    mdToolbar.classList.toggle('hidden', isPdf || fileType === 'csv' || fileType === 'text');
+    lineNumbers.style.display = isPdf ? 'none' : 'block';
+    highlightContent.parentElement.style.display = isPdf ? 'none' : 'block';
+    editorModeLabel.textContent = fileType === 'pdf'
+        ? 'PDF'
+        : fileType === 'csv'
+            ? 'CSV'
+            : fileType === 'text'
+                ? '純文字'
+                : 'Markdown';
+    previewModeLabel.textContent = fileType === 'pdf'
+        ? 'PDF 預覽'
+        : fileType === 'text'
+            ? '文字預覽'
+            : fileType === 'csv'
+                ? 'CSV 預覽'
+                : shouldUseVditorPreview(tab)
+                    ? '預覽編輯'
+                    : '預覽';
+}
+
+function updateEditorSearchMirror() {
+    if (!highlightContent) return;
+    updateLineNumbers();
+    if (!searchPanel.classList.contains('hidden')) {
+        scheduleSearch();
+        return;
+    }
+    highlightContent.innerHTML = escapeForHighlight(editor.value) + '\n';
+    syncHighlightScroll();
+}
+
+function commitEditorContentChange(options = {}) {
+    const {
+        syncTab = true,
+        syncVditor = false,
+        refreshPreview = true,
+        markModified = false,
+        updateStatsOnly = false,
+    } = options;
+    if (syncTab) syncEditorToActiveTab();
+    updateEditorSearchMirror();
+    if (syncVditor && shouldUseVditorPreview()) {
+        syncVditorFromEditor();
+    }
+    if (refreshPreview) {
+        void updatePreview();
+    } else if (updateStatsOnly) {
+        updateStats();
+    }
+    if (markModified) setModified(true);
+}
+
+function setEditorValue(nextValue, options = {}) {
+    editor.value = nextValue;
+    commitEditorContentChange(options);
+}
+
+function updateVditorAppearance() {
+    vditorHost.style.setProperty('--vditor-font-size', `${fontSize}px`);
+    if (!vditorInstance) return;
+    try {
+        vditorInstance.setTheme(getVditorThemeName());
+    } catch (err) {
+        console.warn('Vditor 主題更新失敗:', err);
+    }
+    scheduleResolveVditorImages();
+}
+
+async function syncEditorFromVditor(value = null, options = {}) {
+    if (!vditorInstance) return;
+    const { force = false, markModified = false, refreshStaticPreview = true } = options;
+    const nextValue = value ?? vditorInstance.getValue();
+    const changed = force || editor.value !== nextValue;
+    if (changed) {
+        setEditorValue(nextValue, {
+            syncTab: true,
+            syncVditor: false,
+            refreshPreview: false,
+            updateStatsOnly: !refreshStaticPreview,
+        });
+    }
+    if (refreshStaticPreview) {
+        await renderStaticMarkdownPreview(nextValue);
+    }
+    if (markModified) setModified(true);
+}
+
+function syncVditorFromEditor(options = {}) {
+    if (!vditorInstance || !isMarkdownTab()) return;
+    const { force = false, clearUndo = false } = options;
+    const nextValue = editor.value;
+    if (!force && vditorInstance.getValue() === nextValue) {
+        scheduleResolveVditorImages();
+        return;
+    }
+    suppressVditorInput = true;
+    try {
+        vditorInstance.setValue(nextValue, clearUndo);
+    } finally {
+        suppressVditorInput = false;
+    }
+    scheduleResolveVditorImages();
+}
+
+function bindVditorPasteHandler() {
+    if (vditorPasteBound) return;
+    vditorHost.addEventListener('paste', async (e) => {
+        if (!isVditorActive() || !isPureImagePaste(e)) return;
+        e.preventDefault();
+        await handlePasteImage('vditor');
+    });
+    vditorPasteBound = true;
+}
+
+async function ensureVditor() {
+    if (vditorInstance) return vditorInstance;
+    if (vditorInitPromise) return vditorInitPromise;
+    if (!window.Vditor) throw new Error('Vditor 尚未載入');
+    vditorInitPromise = new Promise((resolve, reject) => {
+        try {
+            let instance;
+            instance = new window.Vditor(vditorHost, {
+                cdn: VDITOR_CDN,
+                cache: { enable: false },
+                mode: 'ir',
+                lang: 'zh_TW',
+                theme: getVditorThemeName(),
+                value: editor.value,
+                height: '100%',
+                minHeight: 0,
+                placeholder: '在此輸入 Markdown...',
+                toolbar: VDITOR_TOOLBAR,
+                toolbarConfig: { pin: true },
+                input(value) {
+                    if (suppressVditorInput) return;
+                    void syncEditorFromVditor(value, { markModified: true, refreshStaticPreview: true })
+                        .catch(err => console.error('Vditor 同步失敗:', err));
+                },
+                after() {
+                    vditorInstance = instance;
+                    bindVditorPasteHandler();
+                    updateVditorAppearance();
+                    syncVditorFromEditor({ force: true, clearUndo: true });
+                    resolve(instance);
+                },
+            });
+        } catch (err) {
+            vditorInitPromise = null;
+            reject(err);
+        }
+    });
+    try {
+        return await vditorInitPromise;
+    } catch (err) {
+        vditorInitPromise = null;
+        throw err;
+    }
 }
 
 async function refreshActiveTabView() {
@@ -173,14 +1164,112 @@ async function refreshActiveTabView() {
     await updatePreview();
     setModified(tab.isModified, { skipTabSync: true });
     renderTabs();
+    setSidebarSelection(tab.filePath);
+    updateTerminalActionButtons();
+    syncTerminalContext();
     if (highlightContent) {
         if (!searchPanel.classList.contains('hidden')) {
             runSearch();
         } else {
-            highlightContent.innerHTML = escapeForHighlight(editor.value) + '\n';
-            highlightContent.style.transform = 'translate(0,0)';
+            updateEditorSearchMirror();
         }
     }
+}
+
+function ensureTerminalClient() {
+    if (terminal) return true;
+    if (!window.Terminal || !window.FitAddon?.FitAddon) {
+        setTerminalError('xterm.js 載入失敗');
+        return false;
+    }
+    terminal = new window.Terminal({
+        cursorBlink: true,
+        fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace',
+        fontSize: 13,
+        theme: {
+            background: '#0b1220',
+            foreground: '#dbeafe',
+            cursor: '#42b883',
+            selectionBackground: 'rgba(66, 184, 131, 0.25)'
+        },
+        scrollback: 5000,
+        allowTransparency: false,
+        macOptionIsMeta: true,
+        convertEol: false
+    });
+    terminalFitAddon = new window.FitAddon.FitAddon();
+    terminal.loadAddon(terminalFitAddon);
+    terminal.open(terminalMount);
+    terminal.onData((data) => {
+        if (!terminalStatus.running) return;
+        window.electronAPI.terminalWrite(data);
+    });
+    terminalReady = true;
+    return true;
+}
+
+function fitTerminal() {
+    if (!terminalReady || !terminalVisible) return;
+    requestAnimationFrame(async () => {
+        try {
+            terminalFitAddon.fit();
+            const cols = Math.max(20, terminal.cols || 80);
+            const rows = Math.max(10, terminal.rows || 24);
+            await window.electronAPI.terminalResize(cols, rows);
+        } catch (e) {
+            console.warn('terminal fit 失敗:', e);
+        }
+    });
+}
+
+async function startTerminalIfNeeded(options = {}) {
+    if (terminalStarting) return;
+    if (!ensureTerminalClient()) return;
+    terminalStarting = true;
+    try {
+        await syncTerminalContext();
+        fitTerminal();
+        const result = await window.electronAPI.terminalCreate({
+            cwd: getTerminalWorkingDir(),
+            cols: terminal.cols || 100,
+            rows: terminal.rows || 28,
+            ...options,
+        });
+        if (!result?.success) {
+            setTerminalError(result?.error || 'terminal 啟動失敗');
+            renderTerminalStatus({ running: false, error: result?.error || 'terminal 啟動失敗' });
+        } else {
+            setTerminalError('');
+            renderTerminalStatus({ running: true, cwd: result.cwd || getTerminalWorkingDir(), shell: result.shell, error: null });
+        }
+    } finally {
+        terminalStarting = false;
+    }
+}
+
+function setTerminalVisible(visible) {
+    terminalVisible = visible;
+    if (visible) {
+        startTerminalIfNeeded();
+        fitTerminal();
+    }
+}
+
+async function focusTerminal() {
+    if (!terminalVisible) setViewMode('terminal');
+    await startTerminalIfNeeded();
+    terminal?.focus();
+}
+
+async function sendTerminalShortcutCommand(command, options = {}) {
+    await focusTerminal();
+    const result = await window.electronAPI.terminalSendCommand(command, options);
+    if (!result?.success) {
+        setTerminalError(result?.error || 'terminal 指令送出失敗');
+        showSaveToast('Terminal 指令送出失敗');
+        return;
+    }
+    setTerminalError('');
 }
 
 async function activateTab(tabId) {
@@ -194,6 +1283,7 @@ async function activateTab(tabId) {
         tab.externalChanged = false;
     }
     await refreshActiveTabView();
+    await refreshGitState({ quiet: true });
 }
 
 function ensureAtLeastOneTab() {
@@ -247,6 +1337,48 @@ newTabBtn.addEventListener('click', async () => {
     await createUntitledTab();
 });
 
+toggleSidebarBtn?.addEventListener('click', () => {
+    sidebarCollapsed = !sidebarCollapsed;
+    applySidebarChrome();
+});
+
+document.querySelectorAll('[data-section-toggle]').forEach(button => {
+    button.addEventListener('click', () => {
+        toggleSidebarSection(button.dataset.sectionToggle);
+    });
+});
+
+openFolderBtn?.addEventListener('click', async () => {
+    if (sidebarCollapsed) {
+        sidebarCollapsed = false;
+        applySidebarChrome();
+        return;
+    }
+    const result = await window.electronAPI.showOpenFolderDialog();
+    if (result?.success && result.filePath) {
+        recentFolders = await window.electronAPI.getRecentFolders();
+        await openFolder(result.filePath, { skipRecentRefresh: true });
+    }
+});
+
+folderTree?.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-path]');
+    if (!button) return;
+    const targetPath = button.dataset.path;
+    const statResult = await window.electronAPI.statPath(targetPath);
+    if (!statResult?.success) {
+        showSaveToast('讀取資料夾樹失敗');
+        return;
+    }
+    if (statResult.stat.isDirectory) {
+        if (treeState.expanded.has(targetPath)) treeState.expanded.delete(targetPath);
+        else treeState.expanded.add(targetPath);
+        await renderSidebar();
+        return;
+    }
+    await openFile(targetPath);
+});
+
 // ========== 字型大小 ==========
 const LS_FONT_SIZE = 'md_font_size';
 let fontSize = parseInt(localStorage.getItem(LS_FONT_SIZE) || '15', 10);
@@ -254,6 +1386,7 @@ function applyFontSize() {
     previewContent.style.fontSize = fontSize + 'px';
     fontSizeLabel.textContent = fontSize + 'px';
     localStorage.setItem(LS_FONT_SIZE, fontSize);
+    updateVditorAppearance();
 }
 fontIncBtn.addEventListener('click', () => { if (fontSize < 22) { fontSize++; applyFontSize(); } });
 fontDecBtn.addEventListener('click', () => { if (fontSize > 10) { fontSize--; applyFontSize(); } });
@@ -261,33 +1394,135 @@ applyFontSize();
 
 // ========== 檢視模式 ==========
 const LS_VIEW = 'md_view_mode';
+const LS_PANELS = 'md_visible_panels';
+let visiblePanels = new Set(['editor', 'preview']);
 const viewBtns = {
     edit:    document.getElementById('viewEdit'),
     split:   document.getElementById('viewSplit'),
     preview: document.getElementById('viewPreview'),
+    terminal: document.getElementById('viewTerminal'),
 };
-function setViewMode(mode) {
-    Object.values(viewBtns).forEach(b => b.classList.remove('active'));
-    viewBtns[mode]?.classList.add('active');
-    localStorage.setItem(LS_VIEW, mode);
-    const rh = document.getElementById('resize-handle');
-    if (mode === 'edit') {
-        editorPanel.style.display = 'flex'; editorPanel.style.width = '100%';
-        previewPanel.style.display = 'none';
-        if (rh) rh.style.display = 'none';
-    } else if (mode === 'preview') {
-        editorPanel.style.display = 'none';
-        previewPanel.style.display = 'flex'; previewPanel.style.width = '100%';
-        if (rh) rh.style.display = 'none';
-    } else {
-        editorPanel.style.display = 'flex'; editorPanel.style.width = '50%';
-        previewPanel.style.display = 'flex'; previewPanel.style.width = '50%';
-        if (rh) rh.style.display = 'block';
-    }
+
+function getVisibleContentPanels() {
+    return [
+        { id: 'editor', el: editorPanel },
+        { id: 'preview', el: previewPanel },
+        { id: 'terminal', el: terminalDrawer },
+    ].filter(panel => visiblePanels.has(panel.id));
 }
+
+function saveVisiblePanels() {
+    localStorage.setItem(LS_PANELS, JSON.stringify([...visiblePanels]));
+}
+
+function normalizePanelWidths() {
+    const activeIds = [...visiblePanels];
+    if (activeIds.length === 0) return;
+    const currentTotal = activeIds.reduce((sum, id) => sum + (panelWidths[id] || 0), 0);
+    if (currentTotal <= 0) {
+        const evenWidth = 100 / activeIds.length;
+        activeIds.forEach(id => { panelWidths[id] = evenWidth; });
+        return;
+    }
+    activeIds.forEach(id => {
+        panelWidths[id] = (panelWidths[id] || 0) / currentTotal * 100;
+    });
+}
+
+function setPanelWidthStyles() {
+    const panels = {
+        editor: editorPanel,
+        preview: previewPanel,
+        terminal: terminalDrawer,
+    };
+    Object.entries(panels).forEach(([id, el]) => {
+        if (visiblePanels.has(id)) {
+            el.style.width = `${panelWidths[id]}%`;
+        }
+    });
+}
+
+function applyVisiblePanels(options = {}) {
+    const { persist = true } = options;
+    if (visiblePanels.size === 0) visiblePanels.add('editor');
+
+    const activePanels = getVisibleContentPanels();
+    const rh = document.getElementById('resize-handle');
+    normalizePanelWidths();
+
+    editorPanel.style.display = visiblePanels.has('editor') ? 'flex' : 'none';
+    previewPanel.style.display = visiblePanels.has('preview') ? 'flex' : 'none';
+    terminalDrawer.style.display = visiblePanels.has('terminal') ? 'flex' : 'none';
+    terminalWidthHandle.style.display = visiblePanels.has('preview') && visiblePanels.has('terminal') ? 'block' : 'none';
+    setPanelWidthStyles();
+
+    terminalVisible = visiblePanels.has('terminal');
+    Object.values(viewBtns).forEach(b => b.classList.remove('active'));
+    viewBtns.edit.classList.toggle('active', visiblePanels.has('editor'));
+    viewBtns.preview.classList.toggle('active', visiblePanels.has('preview'));
+    viewBtns.terminal.classList.toggle('active', visiblePanels.has('terminal'));
+    viewBtns.split.classList.toggle('active', visiblePanels.has('editor') && visiblePanels.has('preview'));
+    if (rh) rh.style.display = visiblePanels.has('editor') && activePanels.length > 1 ? 'block' : 'none';
+    if (persist) saveVisiblePanels();
+    updateEditorModeUI();
+    if (terminalVisible) {
+        startTerminalIfNeeded();
+        fitTerminal();
+    }
+    void updatePreview();
+}
+
+function togglePanel(panelId) {
+    if (visiblePanels.has(panelId)) visiblePanels.delete(panelId);
+    else visiblePanels.add(panelId);
+    applyVisiblePanels();
+}
+
+function setViewMode(mode) {
+    if (mode === 'split') {
+        visiblePanels = new Set(['editor', 'preview']);
+        panelWidths.editor = 50;
+        panelWidths.preview = 50;
+    } else if (mode === 'edit') {
+        togglePanel('editor');
+        return;
+    } else if (mode === 'preview') {
+        togglePanel('preview');
+        return;
+    } else if (mode === 'terminal') {
+        togglePanel('terminal');
+        return;
+    } else {
+        visiblePanels = new Set(['editor', 'preview']);
+    }
+    localStorage.setItem(LS_VIEW, mode);
+    applyVisiblePanels();
+}
+
+function restoreVisiblePanels() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LS_PANELS) || 'null');
+        if (Array.isArray(parsed)) {
+            const allowed = parsed.filter(panel => ['editor', 'preview', 'terminal'].includes(panel));
+            if (allowed.length > 0) visiblePanels = new Set(allowed);
+        } else {
+            const legacyMode = localStorage.getItem(LS_VIEW) || 'split';
+            visiblePanels = legacyMode === 'edit'
+                ? new Set(['editor'])
+                : legacyMode === 'preview'
+                    ? new Set(['preview'])
+                    : new Set(['editor', 'preview']);
+        }
+    } catch (e) {
+        visiblePanels = new Set(['editor', 'preview']);
+    }
+    applyVisiblePanels({ persist: false });
+}
+
 viewBtns.edit.addEventListener('click',    () => setViewMode('edit'));
 viewBtns.split.addEventListener('click',   () => setViewMode('split'));
 viewBtns.preview.addEventListener('click', () => setViewMode('preview'));
+viewBtns.terminal.addEventListener('click', () => setViewMode('terminal'));
 
 // ========== 主題切換 ==========
 const THEME_LABELS = { vue: 'Vue 綠', notion: 'Notion 風', 'github-dark': 'GitHub Dark' };
@@ -308,6 +1543,7 @@ function applyTheme(theme) {
     }
     const mermaidTheme = theme === 'github-dark' ? 'dark' : theme === 'notion' ? 'neutral' : 'default';
     mermaid.initialize({ startOnLoad: false, theme: mermaidTheme, securityLevel: 'loose' });
+    updateVditorAppearance();
 }
 
 themeSelectBtn?.addEventListener('click', (e) => {
@@ -371,6 +1607,7 @@ function applyFont() {
         });
     }
     localStorage.setItem(LS_FONT, currentFontId);
+    updateVditorAppearance();
 }
 
 function buildFontDropdown() {
@@ -407,7 +1644,8 @@ function wrapSelection(before, after='', placeholder='文字') {
     editor.focus();
     editor.selectionStart = start + before.length;
     editor.selectionEnd   = start + before.length + sel.length;
-    updatePreview(); scheduleAutoSave();
+    commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
+    scheduleAutoSave();
 }
 function insertLine(prefix, placeholder='文字') {
     const start = editor.selectionStart;
@@ -417,12 +1655,11 @@ function insertLine(prefix, placeholder='文字') {
     const already   = line.startsWith(prefix);
     const newLine   = already ? line.slice(prefix.length) : prefix + line;
     editor.setRangeText(newLine, lineStart, lineEnd === -1 ? editor.value.length : lineEnd, 'end');
-    editor.focus(); updatePreview(); scheduleAutoSave();
+    editor.focus();
+    commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
+    scheduleAutoSave();
 }
 const TOOLBAR_ACTIONS = {
-    h1:        () => insertLine('# '),
-    h2:        () => insertLine('## '),
-    h3:        () => insertLine('### '),
     bold:      () => wrapSelection('**', '**', '粗體文字'),
     italic:    () => wrapSelection('*', '*', '斜體文字'),
     strike:    () => wrapSelection('~~', '~~', '刪除文字'),
@@ -437,24 +1674,37 @@ const TOOLBAR_ACTIONS = {
         const sel = editor.value.substring(s, e) || 'code';
         const block = '\n```\n' + sel + '\n```\n';
         editor.setRangeText(block, s, e, 'end');
-        editor.focus(); updatePreview(); scheduleAutoSave();
+        editor.focus();
+        commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
+        scheduleAutoSave();
     },
     table: () => {
         const tbl = '\n| 欄位1 | 欄位2 | 欄位3 |\n| :--- | :---: | ---: |\n| 內容 | 內容 | 內容 |\n';
         const pos = editor.selectionEnd;
         editor.setRangeText(tbl, pos, pos, 'end');
-        editor.focus(); updatePreview(); scheduleAutoSave();
+        editor.focus();
+        commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
+        scheduleAutoSave();
     },
     hr: () => {
         const pos = editor.selectionEnd;
         editor.setRangeText('\n\n---\n\n', pos, pos, 'end');
-        editor.focus(); updatePreview(); scheduleAutoSave();
+        editor.focus();
+        commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
+        scheduleAutoSave();
     },
 };
-document.getElementById('md-toolbar').addEventListener('click', e => {
+mdToolbar.addEventListener('click', e => {
     const btn = e.target.closest('[data-action]');
     if (btn) TOOLBAR_ACTIONS[btn.dataset.action]?.();
 });
+
+function prepareEditorSearch() {
+    if (visiblePanels.has('preview') && !visiblePanels.has('editor')) {
+        setViewMode('split');
+    }
+    editor.focus();
+}
 
 // ========== 鍵盤快捷鍵 ==========
 editor.addEventListener('keydown', e => {
@@ -467,7 +1717,7 @@ editor.addEventListener('keydown', e => {
         e.preventDefault();
         const s = editor.selectionStart, en = editor.selectionEnd;
         editor.setRangeText('    ', s, en, 'end');
-        updatePreview();
+        commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
     }
     if (e.key === 'Escape') {
         if (!searchPanel.classList.contains('hidden')) {
@@ -477,21 +1727,45 @@ editor.addEventListener('keydown', e => {
     }
 });
 document.addEventListener('keydown', e => {
+    if (isTerminalFocused() && !((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'j' || (e.shiftKey && e.key.toLowerCase() === 'c')))) {
+        return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault(); saveCurrentFile();
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setViewMode('terminal');
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        focusTerminal();
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
+        prepareEditorSearch();
         openSearchPanel({ showReplace: false });
     }
     if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'f') {
         e.preventDefault();
+        prepareEditorSearch();
         openSearchPanel({ showReplace: true });
+    }
+    if (e.key === 'Escape' && gitFloatingOpen) {
+        e.preventDefault();
+        closeGitFloatingPanel();
     }
 });
 
 // ========== 字數統計 ==========
 function updateStats() {
+    if (currentFileType === 'pdf') {
+        const pages = getActiveTab()?.previewMeta?.pdf?.numPages || 0;
+        statWords.textContent = `${pages} 頁`;
+        statLines.textContent = '唯讀';
+        statChars.textContent = 'PDF';
+        return;
+    }
     const txt   = editor.value;
     const words = txt.trim() === '' ? 0 : txt.trim().split(/\s+/).length;
     const lines = txt === '' ? 1 : txt.split('\n').length;
@@ -499,6 +1773,24 @@ function updateStats() {
     statWords.textContent = words + ' 字';
     statLines.textContent = lines + ' 行';
     statChars.textContent = chars + ' 字元';
+    updateLineNumbers();
+}
+
+function updateLineNumbers() {
+    const lineCount = editor.value === '' ? 1 : editor.value.split('\n').length;
+    let html = '<div class="line-numbers-inner">';
+    for (let i = 1; i <= lineCount; i++) {
+        html += `<div class="line-number">${i}</div>`;
+    }
+    html += '</div>';
+    lineNumbers.innerHTML = html;
+    syncLineNumberScroll();
+}
+
+function syncLineNumberScroll() {
+    const inner = lineNumbers.querySelector('.line-numbers-inner');
+    if (!inner) return;
+    inner.style.transform = `translateY(${-editor.scrollTop}px)`;
 }
 
 // ========== 程式碼區塊複製 ==========
@@ -616,24 +1908,44 @@ async function readFileText(filePath, ext, encodingOverride = 'auto') {
     return stripBom(new TextDecoder('utf-8').decode(buffer));
 }
 
+async function readPdfDocument(filePath) {
+    const binary = await window.electronAPI.readFileBinary(filePath);
+    if (!binary.success) throw new Error(binary.error);
+    if (!window.pdfjsLib) throw new Error('pdf.js 尚未載入');
+    if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.js';
+    }
+    const data = Uint8Array.from(atob(binary.data), c => c.charCodeAt(0));
+    const loadingTask = window.pdfjsLib.getDocument({ data });
+    const pdf = await loadingTask.promise;
+    return { pdf, base64: binary.data };
+}
+
 // ========== 開啟檔案 ==========
 async function reloadTabFromDisk(tab, options = {}) {
     const { notify = true } = options;
     if (!tab?.filePath) return false;
     try {
-        const ext = tab.filePath.split('.').pop().toLowerCase();
-        const text = await readFileText(tab.filePath, ext, tab.csvEncoding || csvEncodingSelect.value);
-        tab.filePath = tab.filePath;
+        const ext = getFileExt(tab.filePath);
+        const fileType = getFileTypeFromExt(ext);
         tab.dirPath = await window.electronAPI.pathDirname(tab.filePath);
         tab.fileExt = ext;
-        tab.fileType = ext === 'csv' ? 'csv' : 'markdown';
-        tab.content = text;
+        tab.fileType = fileType;
+        if (fileType === 'pdf') {
+            tab.content = '';
+            tab.previewMeta = await readPdfDocument(tab.filePath);
+        } else {
+            tab.content = await readFileText(tab.filePath, ext, tab.csvEncoding || csvEncodingSelect.value);
+            tab.previewMeta = null;
+        }
         tab.isModified = false;
         tab.externalChanged = false;
         updateTabTitle(tab);
-        const watchResult = await window.electronAPI.watchCurrentFile(tab.filePath);
-        if (!watchResult?.success) {
-            console.warn('監聽檔案失敗:', watchResult?.error);
+        if (fileType !== 'pdf') {
+            const watchResult = await window.electronAPI.watchCurrentFile(tab.filePath);
+            if (!watchResult?.success) {
+                console.warn('監聽檔案失敗:', watchResult?.error);
+            }
         }
         if (tab.id === activeTabId) {
             await refreshActiveTabView();
@@ -653,6 +1965,14 @@ async function openFile(filePath, options = {}) {
     try {
         const { silent = false } = options;
         syncEditorToActiveTab();
+        setSidebarSelection(filePath);
+        const ext = getFileExt(filePath);
+        if (!supportsFileExtension(ext)) {
+            showSaveToast('此檔案類型尚不支援');
+            return;
+        }
+        await window.electronAPI.addRecentFile(filePath);
+        recentFilesState = await window.electronAPI.getRecentFiles();
         const existingTab = tabs.find(tab => tab.filePath === filePath);
         if (existingTab) {
             activeTabId = existingTab.id;
@@ -661,29 +1981,40 @@ async function openFile(filePath, options = {}) {
             } else {
                 await refreshActiveTabView();
             }
+            await refreshGitState({ quiet: true });
             if (!silent) showSaveToast('已切換到 ' + pathBasename(filePath));
             return;
         }
 
-        const ext = filePath.split('.').pop().toLowerCase();
+        const fileType = getFileTypeFromExt(ext);
         const encoding = ext === 'csv' ? (csvEncodingSelect.value || 'auto') : 'auto';
-        const text = await readFileText(filePath, ext, encoding);
+        const text = fileType === 'pdf' ? '' : await readFileText(filePath, ext, encoding);
         const tab = createTabState({
             filePath,
             dirPath: await window.electronAPI.pathDirname(filePath),
             fileExt: ext,
-            fileType: ext === 'csv' ? 'csv' : 'markdown',
+            fileType,
             content: text,
             csvEncoding: encoding,
+            previewMeta: fileType === 'pdf' ? await readPdfDocument(filePath) : null,
         });
         updateTabTitle(tab);
         tabs.push(tab);
         activeTabId = tab.id;
-        const watchResult = await window.electronAPI.watchCurrentFile(filePath);
-        if (!watchResult?.success) {
-            console.warn('監聽檔案失敗:', watchResult?.error);
+        if (fileType !== 'pdf') {
+            const watchResult = await window.electronAPI.watchCurrentFile(filePath);
+            if (!watchResult?.success) {
+                console.warn('監聽檔案失敗:', watchResult?.error);
+            }
+        }
+        if (!currentFolderPath || !isPathInsideFolder(filePath, currentFolderPath)) {
+            currentFolderPath = await window.electronAPI.pathDirname(filePath);
+            treeState.loaded.clear();
+            treeState.expanded.clear();
+            treeState.expanded.add(currentFolderPath);
         }
         await refreshActiveTabView();
+        await refreshGitState({ quiet: true });
         if (!silent) showSaveToast('已開啟 ' + pathBasename(filePath));
     } catch (e) {
         console.error('開啟檔案失敗:', e);
@@ -697,23 +2028,31 @@ function pathBasename(fp) {
 
 function updateExportButtons() {
     const isCsv = currentFileType === 'csv';
+    const isPdf = currentFileType === 'pdf';
+    const isText = currentFileType === 'text';
     exportExcelBtn.classList.toggle('hidden', !isCsv);
-    openPdfPanelBtn.classList.toggle('hidden', isCsv);
-    document.getElementById('exportWordBtn').classList.toggle('hidden', isCsv);
+    openPdfPanelBtn.classList.toggle('hidden', isCsv || isPdf);
+    exportWordBtn.classList.toggle('hidden', isCsv || isPdf);
     csvEncodingWrap.classList.toggle('hidden', !isCsv);
     csvEncodingWrap.classList.toggle('flex', isCsv);
+    saveBtn.classList.toggle('hidden', isPdf);
+    if (isText) {
+        openPdfPanelBtn.classList.remove('hidden');
+        exportWordBtn.classList.remove('hidden');
+    }
 }
 
 function setModified(modified, options = {}) {
     const { skipTabSync = false, silentTitle = false } = options;
+    if (currentFileType === 'pdf') modified = false;
     isModified = modified;
     const tab = getActiveTab();
     if (tab && !skipTabSync) {
         tab.isModified = modified;
-        tab.content = editor.value;
+        if (tab.fileType !== 'pdf') tab.content = editor.value;
         updateTabTitle(tab);
     }
-    saveBtn.disabled = !modified && !currentFilePath;
+    saveBtn.disabled = currentFileType === 'pdf' || (!modified && !currentFilePath);
     if (saveBtn.disabled) {
         saveBtn.classList.add('text-gray-400','border-gray-300','bg-gray-50','cursor-not-allowed');
         saveBtn.classList.remove('text-gray-700','border-gray-400','hover:border-[#42b883]','hover:text-[#42b883]','hover:bg-green-50','bg-white');
@@ -729,7 +2068,14 @@ function setModified(modified, options = {}) {
 
 // ========== 儲存功能 ==========
 async function saveCurrentFile() {
+    if (isVditorActive()) {
+        await syncEditorFromVditor(null, { refreshStaticPreview: true });
+    }
     syncEditorToActiveTab();
+    if (currentFileType === 'pdf') {
+        showSaveToast('PDF 為唯讀檢視');
+        return;
+    }
     if (!currentFilePath) {
         await saveAsNewFile();
         return;
@@ -741,6 +2087,7 @@ async function saveCurrentFile() {
             await window.electronAPI.watchCurrentFile(currentFilePath);
             showSaveToast('已儲存');
             setModified(false);
+            await refreshGitState({ quiet: true });
         } else {
             showSaveToast('儲存失敗: ' + result.error);
         }
@@ -750,6 +2097,10 @@ async function saveCurrentFile() {
 }
 
 async function saveAsNewFile() {
+    if (currentFileType === 'pdf') {
+        showSaveToast('PDF 不支援另存編輯內容');
+        return;
+    }
     const result = await window.electronAPI.showSaveDialog({
         defaultPath: 'untitled.md',
         filters: [
@@ -765,8 +2116,8 @@ async function saveAsNewFile() {
         }
         tab.filePath = result.filePath;
         tab.dirPath  = await window.electronAPI.pathDirname(tab.filePath);
-        tab.fileExt  = tab.filePath.split('.').pop().toLowerCase();
-        tab.fileType = tab.fileExt === 'csv' ? 'csv' : 'markdown';
+        tab.fileExt  = getFileExt(tab.filePath);
+        tab.fileType = getFileTypeFromExt(tab.fileExt);
         updateTabTitle(tab);
         currentFilePath = tab.filePath;
         currentDirPath = tab.dirPath;
@@ -804,8 +2155,7 @@ csvEncodingSelect.addEventListener('change', async () => {
         if (tab) tab.csvEncoding = csvEncodingSelect.value;
         const ext = currentFilePath.split('.').pop().toLowerCase();
         const text = await readFileText(currentFilePath, ext, csvEncodingSelect.value);
-        editor.value = text;
-        if (tab) tab.content = text;
+        setEditorValue(text, { syncTab: true, syncVditor: false, refreshPreview: false });
         await updatePreview();
         setModified(false);
         showSaveToast(`CSV 重新解碼: ${csvEncodingSelect.value === 'auto' ? '自動' : csvEncodingSelect.value}`);
@@ -818,20 +2168,91 @@ csvEncodingSelect.addEventListener('change', async () => {
 // ========== 預覽更新 ==========
 mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
 
-async function updatePreview() {
-    if (currentFileType === 'csv') {
-        renderCsvPreview(editor.value);
-        updateStats();
+async function renderPdfPreview(tab = getActiveTab()) {
+    const pdf = tab?.previewMeta?.pdf;
+    if (!pdf) {
+        previewContent.innerHTML = '<div class="pdf-empty-state">PDF 載入失敗</div>';
         return;
     }
-    const cleanHtml = DOMPurify.sanitize(marked.parse(editor.value), { ADD_ATTR: ['onclick', 'data-src', 'data-mermaid-source'], FORCE_BODY: true });
+    previewContent.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'pdf-preview';
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const pageEl = document.createElement('div');
+        pageEl.className = 'pdf-page';
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const context = canvas.getContext('2d');
+        await page.render({ canvasContext: context, viewport }).promise;
+        const meta = document.createElement('div');
+        meta.className = 'pdf-page-meta';
+        meta.textContent = `Page ${pageNum}`;
+        pageEl.appendChild(canvas);
+        pageEl.appendChild(meta);
+        wrapper.appendChild(pageEl);
+    }
+    previewContent.appendChild(wrapper);
+}
+
+async function renderStaticMarkdownPreview(markdown = editor.value) {
+    const renderSeq = ++markdownPreviewRenderSeq;
+    const cleanHtml = DOMPurify.sanitize(marked.parse(markdown), { ADD_ATTR: ['onclick', 'data-src', 'data-mermaid-source'], FORCE_BODY: true });
     previewContent.innerHTML = cleanHtml;
     const mermaidEls = previewContent.querySelectorAll('.mermaid');
     if (mermaidEls.length > 0) {
         try { await mermaid.run({ nodes: mermaidEls }); } catch(e) { console.warn('Mermaid 渲染失敗:', e); }
     }
+    if (renderSeq !== markdownPreviewRenderSeq) return;
     await resolveImages(previewContent);
+    if (renderSeq !== markdownPreviewRenderSeq) return;
     updateStats();
+}
+
+async function activateVditorPreview() {
+    updatePreviewSurfaceVisibility(true);
+    try {
+        await ensureVditor();
+        syncVditorFromEditor();
+        updateVditorAppearance();
+        if (!visiblePanels.has('editor')) {
+            requestAnimationFrame(() => vditorInstance?.focus());
+        }
+    } catch (err) {
+        console.error('Vditor 初始化失敗:', err);
+        updatePreviewSurfaceVisibility(false);
+        showSaveToast('Vditor 載入失敗，已改用靜態預覽');
+    }
+}
+
+async function updatePreview() {
+    updateEditorModeUI();
+    if (currentFileType === 'csv') {
+        updatePreviewSurfaceVisibility(false);
+        renderCsvPreview(editor.value);
+        updateStats();
+        return;
+    }
+    if (currentFileType === 'text') {
+        updatePreviewSurfaceVisibility(false);
+        previewContent.innerHTML = `<pre class="plain-text-preview">${escapeHtml(editor.value)}</pre>`;
+        updateStats();
+        return;
+    }
+    if (currentFileType === 'pdf') {
+        updatePreviewSurfaceVisibility(false);
+        await renderPdfPreview();
+        updateStats();
+        return;
+    }
+    await renderStaticMarkdownPreview(editor.value);
+    if (shouldUseVditorPreview()) {
+        await activateVditorPreview();
+        return;
+    }
+    updatePreviewSurfaceVisibility(false);
 }
 
 // ========== CSV 預覽 ==========
@@ -930,12 +2351,24 @@ resizeHandle.addEventListener('mousedown', e => {
 });
 document.addEventListener('mousemove', e => {
     if (!isResizing) return;
+    if (!visiblePanels.has('editor')) return;
     const mainRect = mainEl.getBoundingClientRect();
     const available = mainRect.width - resizeHandle.offsetWidth;
+    const rightPanels = [
+        visiblePanels.has('preview') ? 'preview' : null,
+        visiblePanels.has('terminal') ? 'terminal' : null,
+    ].filter(Boolean);
+    if (rightPanels.length === 0) return;
+    const maxEditorPct = 100 - rightPanels.length * 15;
     let editorPct = (e.clientX - mainRect.left) / available * 100;
-    editorPct = Math.max(15, Math.min(85, editorPct));
-    editorPanel.style.width = editorPct + '%';
-    previewPanel.style.width = (100 - editorPct) + '%';
+    editorPct = Math.max(15, Math.min(maxEditorPct, editorPct));
+    panelWidths.editor = editorPct;
+    const rightWidth = (100 - editorPct) / rightPanels.length;
+    rightPanels.forEach(id => {
+        panelWidths[id] = rightWidth;
+    });
+    setPanelWidthStyles();
+    fitTerminal();
 });
 document.addEventListener('mouseup', () => {
     if (!isResizing) return;
@@ -943,19 +2376,53 @@ document.addEventListener('mouseup', () => {
     resizeHandle.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    fitTerminal();
+});
+
+window.addEventListener('resize', () => {
+    fitTerminal();
+});
+
+terminalWidthHandle.addEventListener('mousedown', e => {
+    isTerminalWidthResizing = true;
+    terminalWidthHandle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+});
+
+document.addEventListener('mousemove', e => {
+    if (!isTerminalWidthResizing) return;
+    if (!visiblePanels.has('preview') || !visiblePanels.has('terminal')) return;
+    const mainRect = mainEl.getBoundingClientRect();
+    const mousePct = (e.clientX - mainRect.left) / mainRect.width * 100;
+    const leftPct = visiblePanels.has('editor') ? panelWidths.editor : 0;
+    const combined = 100 - leftPct;
+    let previewPct = mousePct - leftPct;
+    previewPct = Math.max(15, Math.min(combined - 15, previewPct));
+    panelWidths.preview = previewPct;
+    panelWidths.terminal = combined - previewPct;
+    setPanelWidthStyles();
+    fitTerminal();
+});
+
+document.addEventListener('mouseup', () => {
+    if (!isTerminalWidthResizing) return;
+    isTerminalWidthResizing = false;
+    terminalWidthHandle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    fitTerminal();
 });
 
 // ========== 編輯器事件 ==========
 editor.addEventListener('input', () => {
-    syncEditorToActiveTab();
-    updatePreview();
-    setModified(true);
-    if (!searchPanel.classList.contains('hidden')) {
-        scheduleSearch();
-    }
+    commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
 });
 editor.addEventListener('scroll', () => {
     syncHighlightScroll();
+    syncLineNumberScroll();
+    if (isVditorActive()) return;
     const pct = editor.scrollTop / (editor.scrollHeight - editor.clientHeight);
     previewWrapper.scrollTop = pct * (previewWrapper.scrollHeight - previewWrapper.clientHeight);
 });
@@ -1515,7 +2982,34 @@ document.getElementById('exportWordBtn').addEventListener('click', async () => {
 });
 
 // ========== 圖片貼上 ==========
-async function handlePasteImage() {
+function isPureImagePaste(event) {
+    const items = event.clipboardData?.items;
+    if (!items) return false;
+    let hasImage = false;
+    let hasText = false;
+    for (const item of items) {
+        if (item.type.startsWith('image/')) hasImage = true;
+        if (item.type === 'text/plain' || item.type === 'text/html') hasText = true;
+    }
+    return hasImage && !hasText;
+}
+
+async function insertMarkdownSnippet(mdText, target = 'editor') {
+    if (target === 'vditor' && isVditorActive()) {
+        await ensureVditor();
+        vditorInstance.focus();
+        vditorInstance.insertMD('\n' + mdText + '\n');
+        await syncEditorFromVditor(null, { force: true, markModified: true, refreshStaticPreview: true });
+        return;
+    }
+    const pos = editor.selectionEnd;
+    editor.setRangeText('\n' + mdText + '\n', pos, pos, 'end');
+    editor.focus();
+    commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: false, markModified: true });
+    await updatePreview();
+}
+
+async function handlePasteImage(target = isVditorActive() ? 'vditor' : 'editor') {
     if (!currentFilePath) {
         alert('請先儲存檔案（Cmd+S），才能貼上圖片到 assets 資料夾。');
         return;
@@ -1562,11 +3056,7 @@ async function handlePasteImage() {
         const result = await window.electronAPI.saveImageToAssets(currentFilePath, base64, suggestedName);
         if (result.success) {
             const mdText = `![${suggestedName.replace(/\.[^.]+$/, '')}](${result.relativePath})`;
-            const pos = editor.selectionEnd;
-            editor.setRangeText('\n' + mdText + '\n', pos, pos, 'end');
-            editor.focus();
-            updatePreview();
-            setModified(true);
+            await insertMarkdownSnippet(mdText, target);
             showSaveToast('圖片已貼上至 assets/');
         } else {
             alert('圖片儲存失敗: ' + result.error);
@@ -1578,21 +3068,9 @@ async function handlePasteImage() {
 }
 
 editor.addEventListener('paste', async (e) => {
-    // 檢查是否有純圖片貼上（沒有文字）
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    let hasImage = false;
-    let hasText = false;
-    for (const item of items) {
-        if (item.type.startsWith('image/')) hasImage = true;
-        if (item.type === 'text/plain' || item.type === 'text/html') hasText = true;
-    }
-    // 如果有文字也有圖片，或只有文字，不做攔截，讓瀏覽器正常貼上
-    // 如果只有圖片，自動存到 assets
-    if (hasImage && !hasText) {
-        e.preventDefault();
-        await handlePasteImage();
-    }
+    if (!isPureImagePaste(e)) return;
+    e.preventDefault();
+    await handlePasteImage('editor');
 });
 
 // ========== 拖放開啟檔案 ==========
@@ -1609,7 +3087,14 @@ document.addEventListener('drop', async e => {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
         const fp = files[0].path;
-        if (fp) await openFile(fp);
+        if (!fp) return;
+        const statResult = await window.electronAPI.statPath(fp);
+        if (statResult?.success && statResult.stat.isDirectory) {
+            recentFolders = await window.electronAPI.getRecentFolders();
+            await openFolder(fp, { skipRecentRefresh: true });
+            return;
+        }
+        await openFile(fp);
     }
 });
 
@@ -1623,14 +3108,122 @@ function showSaveToast(msg = '已儲存') {
     }, { once: true });
 }
 
+async function handleWatchedFileChange(filePath, reason = 'change') {
+    const tab = tabs.find(item => item.filePath === filePath);
+    if (!tab) return;
+    if (Date.now() < suppressWatchReloadUntil) return;
+    tab.externalChanged = true;
+
+    if (reason === 'delete') {
+        renderTabs();
+        showSaveToast(`${tab.title} 已在外部刪除`);
+        await refreshGitState({ quiet: true });
+        return;
+    }
+
+    if (tab.id !== activeTabId) {
+        renderTabs();
+        showSaveToast(`${tab.title} 已在外部更新`);
+        await refreshGitState({ quiet: true });
+        return;
+    }
+
+    if (!isTextLikeTab(tab)) {
+        await reloadCurrentFileFromDisk({ notify: true });
+        await refreshGitState({ quiet: true });
+        return;
+    }
+    await reloadCurrentFileFromDisk({ notify: true });
+    await refreshGitState({ quiet: true });
+}
+
+terminalCloseBtn.addEventListener('click', () => {
+    if (terminalVisible) setViewMode('terminal');
+});
+
+terminalFocusBtn.addEventListener('click', () => {
+    focusTerminal();
+});
+
+terminalRestartBtn.addEventListener('click', async () => {
+    await focusTerminal();
+    const result = await window.electronAPI.terminalRestart({
+        cwd: getTerminalWorkingDir(),
+        cols: terminal?.cols || 100,
+        rows: terminal?.rows || 28,
+    });
+    if (!result?.success) {
+        setTerminalError(result?.error || 'terminal 重啟失敗');
+        return;
+    }
+    terminal?.clear();
+    setTerminalError('');
+    renderTerminalStatus({ running: true, cwd: result.cwd || getTerminalWorkingDir(), shell: result.shell, error: null });
+});
+
+terminalClearBtn.addEventListener('click', () => {
+    terminal?.clear();
+});
+
+terminalCdBtn.addEventListener('click', async () => {
+    const dir = getTerminalWorkingDir();
+    if (!dir) return;
+    await sendTerminalShortcutCommand(`cd ${shellEscape(dir)}`, { execute: true, cwd: dir });
+    renderTerminalStatus({ running: true, cwd: dir, error: null });
+});
+
+terminalInsertFileBtn.addEventListener('click', async () => {
+    const filePath = getActiveTab()?.filePath;
+    if (!filePath) return;
+    await focusTerminal();
+    await window.electronAPI.terminalSendCommand(shellEscape(filePath), { execute: false });
+});
+
+terminalInsertDirBtn.addEventListener('click', async () => {
+    const dir = getTerminalWorkingDir();
+    if (!dir) return;
+    await focusTerminal();
+    await window.electronAPI.terminalSendCommand(shellEscape(dir), { execute: false });
+});
+
+terminalCodexBtn.addEventListener('click', async () => {
+    const filePath = getActiveTab()?.filePath;
+    if (!filePath) return;
+    await focusTerminal();
+    await window.electronAPI.terminalSendCommand(`codex ${shellEscape(filePath)}`, { execute: false });
+});
+
+terminalPiBtn.addEventListener('click', async () => {
+    const filePath = getActiveTab()?.filePath;
+    if (!filePath) return;
+    await focusTerminal();
+    await window.electronAPI.terminalSendCommand(`pi agent ${shellEscape(filePath)}`, { execute: false });
+});
+
 // ========== 初始化 ==========
-setViewMode(localStorage.getItem(LS_VIEW) || 'split');
-ensureAtLeastOneTab();
-refreshActiveTabView();
+async function initializeApp() {
+    appPaths = await window.electronAPI.getAppPaths();
+    recentFilesState = await window.electronAPI.getRecentFiles();
+    recentFolders = await window.electronAPI.getRecentFolders();
+    restoreSidebarState();
+    restoreVisiblePanels();
+    ensureAtLeastOneTab();
+    await refreshActiveTabView();
+    await renderSidebar();
+    await refreshGitState({ quiet: true });
+    renderTerminalStatus({ running: false, cwd: getTerminalWorkingDir(), error: null });
+    updateTerminalActionButtons();
+}
+
+initializeApp();
 
 // ========== IPC 事件綁定 ==========
 window.electronAPI.onOpenFile(async (filePath) => {
     await openFile(filePath);
+});
+window.electronAPI.onOpenFolder(async (folderPath) => {
+    recentFolders = await window.electronAPI.getRecentFolders();
+    await openFolder(folderPath, { skipRecentRefresh: true });
 });
 window.electronAPI.onMenuNewFile(() => newFile());
 window.electronAPI.onMenuSave(() => saveCurrentFile());
@@ -1644,17 +3237,37 @@ window.electronAPI.onFontSizeChange(delta => {
     const newSize = fontSize + delta;
     if (newSize >= 10 && newSize <= 22) { fontSize = newSize; applyFontSize(); }
 });
-window.electronAPI.onWatchedFileChanged(async ({ filePath }) => {
-    const tab = tabs.find(item => item.filePath === filePath);
-    if (!tab) return;
-    if (Date.now() < suppressWatchReloadUntil) return;
-    tab.externalChanged = true;
-    if (tab.id === activeTabId) {
-        await reloadCurrentFileFromDisk({ notify: true });
-    } else {
-        renderTabs();
-        showSaveToast(`${tab.title} 已在外部更新`);
-    }
+window.electronAPI.onTerminalData(({ data }) => {
+    if (!ensureTerminalClient()) return;
+    terminal.write(data);
+});
+window.electronAPI.onTerminalExit(({ exitCode, signal }) => {
+    renderTerminalStatus({ running: false, error: null });
+    showSaveToast(`Terminal 已結束 (${exitCode ?? signal ?? 0})`);
+});
+window.electronAPI.onTerminalStatus((payload) => {
+    const nextCwd = payload.cwd || getTerminalWorkingDir();
+    renderTerminalStatus({
+        running: Boolean(payload.running),
+        cwd: nextCwd,
+        shell: payload.shell || terminalStatus.shell,
+        error: payload.error || null,
+    });
+    setTerminalError(payload.error || '');
+});
+window.electronAPI.onTerminalError(({ message }) => {
+    setTerminalError(message || 'terminal 發生錯誤');
+});
+window.electronAPI.onRecentFilesUpdated(async (files) => {
+    recentFilesState = Array.isArray(files) ? files : [];
+    await renderSidebar();
+});
+window.electronAPI.onRecentFoldersUpdated(async (folders) => {
+    recentFolders = Array.isArray(folders) ? folders : [];
+    await renderSidebar();
+});
+window.electronAPI.onWatchedFileChanged(async ({ filePath, reason }) => {
+    await handleWatchedFileChange(filePath, reason);
 });
 
 // ==================== 搜尋與取代功能實作 ====================
@@ -1753,10 +3366,7 @@ function closeSearchPanel() {
     searchMatches = [];
     activeSearchIndex = -1;
     editor.classList.remove('search-active');
-    if (highlightContent) {
-        highlightContent.innerHTML = escapeForHighlight(editor.value) + '\n';
-        highlightContent.style.transform = 'translate(0,0)';
-    }
+    updateEditorSearchMirror();
     editor.focus();
 }
 
@@ -1881,13 +3491,19 @@ function replaceActive() {
 
     const before = val.substring(0, match.start);
     const after = val.substring(match.end);
-    editor.value = before + replacement + after;
+    setEditorValue(before + replacement + after, {
+        syncTab: true,
+        syncVditor: true,
+        refreshPreview: false,
+        markModified: true,
+    });
 
     const newCursor = match.start + replacement.length;
     editor.selectionStart = newCursor;
     editor.selectionEnd = newCursor;
 
     runSearch();
+    void updatePreview();
 
     if (searchMatches.length > 0) {
         if (lengthDiff > 0) {
@@ -1927,10 +3543,16 @@ function replaceAll() {
     const before = editor.value;
     const replacedText = before.replace(regex, replacement);
 
-    editor.value = replacedText;
+    setEditorValue(replacedText, {
+        syncTab: true,
+        syncVditor: true,
+        refreshPreview: false,
+        markModified: true,
+    });
     editor.selectionStart = 0;
     editor.selectionEnd = 0;
     runSearch();
+    void updatePreview();
     showSaveToast(`已取代 ${count} 處符合項目`);
     searchInput.focus();
 }
@@ -2006,11 +3628,3 @@ replaceAllBtn.addEventListener('click', replaceAll);
 // 綁定 IPC 選單事件
 window.electronAPI.onMenuFind(() => openSearchPanel({ showReplace: false }));
 window.electronAPI.onMenuReplace(() => openSearchPanel({ showReplace: true }));
-
-// 嘗試載入最近檔案列表（側邊欄提示用，可擴展）
-(async () => {
-    const recent = await window.electronAPI.getRecentFiles();
-    if (recent && recent.length > 0) {
-        // 可選：顯示在最近開啟選單中
-    }
-})();

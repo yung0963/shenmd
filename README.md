@@ -10,8 +10,8 @@
 - **即時雙欄預覽** — 左側編輯、右側即時渲染，支援編輯 / 分割 / 預覽三種模式<br>
   **Live dual-pane preview** — edit on the left, render on the right; switch between edit, split, and preview modes
 
-- **原生檔案操作** — 直接讀寫本地 `.md` / `.csv`，Cmd+S 秒速儲存<br>
-  **Native file I/O** — read/write local `.md` / `.csv` files directly with instant Cmd+S save
+- **原生檔案操作** — 直接讀寫本地 `.md` / `.csv` / `.txt`，並支援唯讀開啟 `.pdf`<br>
+  **Native file I/O** — read/write local `.md` / `.csv` / `.txt` files directly, with read-only `.pdf` viewing
 
 - **圖片貼上自動儲存** — 貼上的圖片自動存入 `assets/` 資料夾，並使用相對路徑，VSCode 也能正確顯示<br>
   **Paste-to-save images** — pasted images are auto-saved to the `assets/` folder with relative paths, fully compatible with VSCode
@@ -31,8 +31,8 @@
 - **Excel (.xlsx) 匯出** — CSV 模式下一鍵轉換，自動調整欄寬<br>
   **Excel (.xlsx) export** — one-click CSV-to-Excel conversion with auto column widths
 
-- **側邊欄資料夾瀏覽** — 樹狀結構瀏覽本地專案，點擊即開啟<br>
-  **Sidebar file browser** — tree-view folder navigation with click-to-open
+- **側邊欄資料夾瀏覽** — 左側顯示 Recent Files / Recent Folders / Folder Tree，點擊即開啟<br>
+  **Sidebar file browser** — left sidebar shows Recent Files / Recent Folders / Folder Tree with click-to-open
 
 - **Mac 原生體驗** — Menu Bar、Dock 拖放、最近開啟檔案、視窗狀態記憶<br>
   **Native macOS experience** — Menu Bar, Dock drag-and-drop, recent files, window state persistence
