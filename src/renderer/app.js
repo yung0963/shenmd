@@ -54,6 +54,8 @@ const vditorHost     = document.getElementById('vditor-host');
 const exportPdfBtn   = document.getElementById('exportPdfBtn');
 const openPdfPanelBtn= document.getElementById('openPdfPanelBtn');
 const pdfPanel       = document.getElementById('pdf-panel');
+const pdfDialog      = document.getElementById('pdf-dialog');
+const pdfFilename    = document.getElementById('pdf-filename');
 const closePdfPanel  = document.getElementById('closePdfPanel');
 const pdfOverlay     = document.getElementById('pdf-overlay');
 const statusText     = document.getElementById('status');
@@ -149,6 +151,7 @@ let suppressVditorInput = false;
 let vditorPasteBound = false;
 let vditorResolveTimer = null;
 let markdownPreviewRenderSeq = 0;
+let pdfPanelOpener = null;
 let currentFolderPath = null;
 let recentFilesState = [];
 let recentFolders = [];
@@ -241,11 +244,26 @@ function isMarkdownTab(tab = getActiveTab()) {
 }
 
 function shouldUseVditorPreview(tab = getActiveTab()) {
-    return isMarkdownTab(tab) && visiblePanels.has('preview');
+    // In split view, Vditor would create a second contenteditable editor in
+    // the preview pane. Its asynchronous setup can take focus away from the
+    // textarea, so reserve it for preview-only mode where it is intentional.
+    return isMarkdownTab(tab) && visiblePanels.has('preview') && !visiblePanels.has('editor');
 }
 
 function isVditorActive() {
     return shouldUseVditorPreview() && !vditorHost.classList.contains('hidden');
+}
+
+function focusEditingSurface() {
+    if (currentFileType === 'pdf' || pdfPanel.classList.contains('open')) return;
+    requestAnimationFrame(() => {
+        if (currentFileType === 'pdf' || pdfPanel.classList.contains('open')) return;
+        if (visiblePanels.has('editor')) {
+            editor.focus({ preventScroll: true });
+        } else if (isVditorActive()) {
+            vditorInstance?.focus();
+        }
+    });
 }
 
 function getVditorThemeName() {
@@ -1485,6 +1503,7 @@ function setViewMode(mode) {
         panelWidths.preview = 50;
     } else if (mode === 'edit') {
         togglePanel('editor');
+        if (visiblePanels.has('editor')) focusEditingSurface();
         return;
     } else if (mode === 'preview') {
         togglePanel('preview');
@@ -1497,6 +1516,7 @@ function setViewMode(mode) {
     }
     localStorage.setItem(LS_VIEW, mode);
     applyVisiblePanels();
+    if (mode === 'edit' || mode === 'split') focusEditingSurface();
 }
 
 function restoreVisiblePanels() {
@@ -1703,7 +1723,7 @@ function prepareEditorSearch() {
     if (visiblePanels.has('preview') && !visiblePanels.has('editor')) {
         setViewMode('split');
     }
-    editor.focus();
+    focusEditingSurface();
 }
 
 // ========== 鍵盤快捷鍵 ==========
@@ -1727,6 +1747,26 @@ editor.addEventListener('keydown', e => {
     }
 });
 document.addEventListener('keydown', e => {
+    if (pdfPanel.classList.contains('open')) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closePdfPanelAndRestoreFocus();
+        } else if (e.key === 'Tab') {
+            const focusable = getPdfDialogFocusableElements();
+            if (focusable.length) {
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey && document.activeElement === first) {
+                    e.preventDefault();
+                    last.focus();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            }
+        }
+        return;
+    }
     if (isTerminalFocused() && !((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'j' || (e.shiftKey && e.key.toLowerCase() === 'c')))) {
         return;
     }
@@ -2428,15 +2468,41 @@ editor.addEventListener('scroll', () => {
 });
 
 // ========== PDF 面板 ==========
-openPdfPanelBtn.addEventListener('click', () => {
+function getPdfDialogFocusableElements() {
+    return [...pdfDialog.querySelectorAll('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter(element => !element.hidden && element.getClientRects().length > 0);
+}
+
+function closePdfPanelAndRestoreFocus() {
+    if (!pdfPanel.classList.contains('open')) return;
+    pdfPanel.classList.remove('open');
+    pdfPanel.setAttribute('aria-hidden', 'true');
+    const opener = pdfPanelOpener;
+    pdfPanelOpener = null;
+    if (visiblePanels.has('editor')) {
+        focusEditingSurface();
+    } else if (opener?.isConnected) {
+        opener.focus({ preventScroll: true });
+    }
+}
+
+function openPdfPanel() {
+    pdfPanelOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const currentFile = statFile.textContent;
     if (currentFile && currentFile !== '未開啟檔案' && currentFile !== '未命名') {
-        document.getElementById('pdf-filename').value = currentFile.replace(/\.[^.]+$/, '');
+        pdfFilename.value = currentFile.replace(/\.[^.]+$/, '');
     }
     pdfPanel.classList.add('open');
-});
-closePdfPanel.addEventListener('click',   () => pdfPanel.classList.remove('open'));
-pdfOverlay.addEventListener('click',      () => pdfPanel.classList.remove('open'));
+    pdfPanel.setAttribute('aria-hidden', 'false');
+    requestAnimationFrame(() => {
+        pdfFilename.focus({ preventScroll: true });
+        pdfFilename.select();
+    });
+}
+
+openPdfPanelBtn.addEventListener('click', openPdfPanel);
+closePdfPanel.addEventListener('click', closePdfPanelAndRestoreFocus);
+pdfOverlay.addEventListener('click', closePdfPanelAndRestoreFocus);
 
 // ========== 通用下載輔助 ==========
 function blobToBase64(blob) {
@@ -2946,7 +3012,7 @@ exportPdfBtn.addEventListener('click', async () => {
         };
         const pdfBlob = await html2pdf().set(opt).from(exportEl).outputPdf('blob');
         await downloadBlob(pdfBlob, filename);
-        pdfPanel.classList.remove('open');
+        closePdfPanelAndRestoreFocus();
         showSaveToast('PDF 匯出完成');
     } catch(err) {
         console.error('PDF 匯出失敗:', err);
@@ -3229,7 +3295,7 @@ window.electronAPI.onMenuNewFile(() => newFile());
 window.electronAPI.onMenuSave(() => saveCurrentFile());
 window.electronAPI.onMenuSaveAs(() => saveAsNewFile());
 window.electronAPI.onMenuPasteImage(() => handlePasteImage());
-window.electronAPI.onMenuExportPdf(() => openPdfPanelBtn.click());
+window.electronAPI.onMenuExportPdf(() => openPdfPanel());
 window.electronAPI.onMenuExportWord(() => document.getElementById('exportWordBtn').click());
 window.electronAPI.onMenuExportExcel(() => exportExcelBtn.click());
 window.electronAPI.onSetViewMode(mode => setViewMode(mode));

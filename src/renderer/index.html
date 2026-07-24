@@ -344,11 +344,11 @@
         </section>
     </div>
 
-    <div id="pdf-panel">
+    <div id="pdf-panel" aria-hidden="true">
         <div id="pdf-overlay"></div>
-        <div id="pdf-dialog">
+        <div id="pdf-dialog" role="dialog" aria-modal="true" aria-labelledby="pdf-dialog-title">
             <div class="flex items-center justify-between">
-                <h2 class="text-base font-semibold text-gray-800">PDF 匯出設定</h2>
+                <h2 id="pdf-dialog-title" class="text-base font-semibold text-gray-800">PDF 匯出設定</h2>
                 <button id="closePdfPanel" class="text-gray-400 hover:text-gray-600 transition-colors">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>

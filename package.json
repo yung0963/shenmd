@@ -1,6 +1,6 @@
 {
   "name": "shenMD",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A powerful Markdown editor for macOS",
   "main": "src/main.js",
   "scripts": {
