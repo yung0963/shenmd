@@ -215,6 +215,23 @@ body {
   font-family: var(--md-font);
   font-size: inherit;
 }
+/* Use the available preview pane instead of Vditor's default narrow,
+   centred document column.  The nested selectors cover all preview modes. */
+#vditor-host .vditor-content,
+#vditor-host .vditor-ir,
+#vditor-host .vditor-wysiwyg,
+#vditor-host .vditor-sv,
+#vditor-host .vditor-reset,
+#vditor-host .vditor-ir__node,
+#vditor-host .vditor-content .vditor-reset,
+#vditor-host .vditor-ir .vditor-reset,
+#vditor-host .vditor-wysiwyg .vditor-reset {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
 #editor-panel {
   background-color: var(--ui-bg);
 }
@@ -418,6 +435,60 @@ body {
   min-width: 72px;
   padding-left: 8px;
   padding-right: 8px;
+}
+
+/* Allow split panes to shrink without forcing the window wider. */
+#editor-panel,
+#preview-panel {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .sidebar-panel {
+    width: 220px;
+    min-width: 220px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  #preview-content {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 860px) {
+  /* Keep the document usable by reducing navigation to its icon rail. */
+  .sidebar-panel:not(.collapsed) {
+    width: 72px;
+    min-width: 72px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .sidebar-panel:not(.collapsed) .sidebar-compact-copy,
+  .sidebar-panel:not(.collapsed) .sidebar-section-title,
+  .sidebar-panel:not(.collapsed) .sidebar-item-text,
+  .sidebar-panel:not(.collapsed) .sidebar-compact-path,
+  .sidebar-panel:not(.collapsed) .tree-caret,
+  .sidebar-panel:not(.collapsed) .sidebar-empty,
+  .sidebar-panel:not(.collapsed) .sidebar-section-chevron,
+  .sidebar-panel:not(.collapsed) .folder-spark-star {
+    display: none;
+  }
+  .sidebar-panel:not(.collapsed) .sidebar-section-toggle,
+  .sidebar-panel:not(.collapsed) .sidebar-compact-header,
+  .sidebar-panel:not(.collapsed) .sidebar-item {
+    justify-content: center;
+  }
+  #preview-content {
+    padding: 0.875rem;
+  }
+  #app-header {
+    gap: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  #app-header > * {
+    flex-shrink: 0;
+  }
 }
 .folder-drawer-btn {
   width: 30px;
