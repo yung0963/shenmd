@@ -36,7 +36,7 @@ export default {
 | :--- | :---: | :--- |
 | Markdown 渲染 | ✅ | 使用 marked.js |
 | 語法高亮 | ✅ | 使用 highlight.js |
-| PDF 匯出 | ✅ | 使用 Electron 原生列印引擎 |
+| PDF 匯出 | ✅ | 使用 html2pdf.js |
 | Word 匯出 | ✅ | 使用 docx.js |
 | Excel 匯出 | ✅ | 使用 xlsx.js |
 | Mermaid 圖表 | ✅ | 使用 mermaid.js |
@@ -48,7 +48,6 @@ export default {
 const editor         = document.getElementById('editor');
 const lineNumbers    = document.getElementById('line-numbers');
 const mdToolbar      = document.getElementById('md-toolbar');
-const headingSelect  = document.getElementById('headingSelect');
 const previewContent = document.getElementById('preview-content');
 const previewWrapper = document.getElementById('preview-wrapper');
 const vditorHost     = document.getElementById('vditor-host');
@@ -77,26 +76,19 @@ const tabsList       = document.getElementById('tabs-list');
 const newTabBtn      = document.getElementById('newTabBtn');
 const sidebarFolderName = document.getElementById('sidebarFolderName');
 const sidebarFolderPath = document.getElementById('sidebarFolderPath');
-const newFileInFolderBtn = document.getElementById('newFileInFolderBtn');
-const newFolderInFolderBtn = document.getElementById('newFolderInFolderBtn');
-const workspaceCreateOverlay = document.getElementById('workspaceCreateOverlay');
-const workspaceCreateDialog = document.getElementById('workspaceCreateDialog');
-const workspaceCreateTitle = document.getElementById('workspaceCreateTitle');
-const workspaceCreatePath = document.getElementById('workspaceCreatePath');
-const workspaceCreateLabel = document.getElementById('workspaceCreateLabel');
-const workspaceCreateName = document.getElementById('workspaceCreateName');
-const workspaceCreateHint = document.getElementById('workspaceCreateHint');
-const workspaceCreateCancelBtn = document.getElementById('workspaceCreateCancelBtn');
-const workspaceCreateCancelBtnSecondary = document.getElementById('workspaceCreateCancelBtnSecondary');
-const workspaceCreateSubmitBtn = document.getElementById('workspaceCreateSubmitBtn');
-const treeContextMenu = document.getElementById('treeContextMenu');
-const tabContextMenu = document.getElementById('tabContextMenu');
 const openFolderBtn  = document.getElementById('openFolderBtn');
 const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
 const recentFilesList = document.getElementById('recentFilesList');
 const recentFoldersList = document.getElementById('recentFoldersList');
+const gitPanel = document.getElementById('gitPanel');
+const gitFloatingOverlay = document.getElementById('gitFloatingOverlay');
+const gitFloatingPanel = document.getElementById('gitFloatingPanel');
+const gitFloatingBody = document.getElementById('gitFloatingBody');
+const gitFloatingSubtitle = document.getElementById('gitFloatingSubtitle');
+const gitFloatingCloseBtn = document.getElementById('gitFloatingCloseBtn');
 const folderTree     = document.getElementById('folderTree');
 const editorModeLabel = document.getElementById('editorModeLabel');
+const previewModeLabel = document.getElementById('previewModeLabel');
 const readonlyOverlay = document.getElementById('readonlyOverlay');
 const terminalDrawer = document.getElementById('terminal-drawer');
 const terminalWidthHandle = document.getElementById('terminal-width-handle');
@@ -149,7 +141,7 @@ let terminalReady = false;
 let terminalStarting = false;
 let terminalVisible = false;
 let terminalStatus = { running: false, cwd: null, error: null };
-let panelWidths = { editor: 0, preview: 70, terminal: 30 };
+let panelWidths = { editor: 50, preview: 25, terminal: 25 };
 let isTerminalWidthResizing = false;
 let vditorInstance = null;
 let vditorInitPromise = null;
@@ -160,22 +152,38 @@ let markdownPreviewRenderSeq = 0;
 let currentFolderPath = null;
 let recentFilesState = [];
 let recentFolders = [];
+let gitState = {
+    loading: false,
+    available: true,
+    isRepo: false,
+    targetDir: null,
+    repoRoot: null,
+    repoName: null,
+    branch: null,
+    changedFiles: 0,
+    stagedFiles: 0,
+    unstagedFiles: 0,
+    untrackedFiles: 0,
+    insertions: 0,
+    deletions: 0,
+    ahead: 0,
+    behind: 0,
+    files: [],
+    error: '',
+};
+let gitFloatingOpen = false;
 let selectedSidebarPath = null;
-let selectedFolderPath = null;
-let createItemDialogState = null;
-let treeContextTarget = null;
-let copiedTreeFilePath = null;
 let sidebarCollapsed = false;
 const treeState = {
     expanded: new Set(),
     loaded: new Map(),
 };
-let sidebarRenderVersion = 0;
 const LS_SIDEBAR_COLLAPSED = 'md_sidebar_collapsed';
 const LS_SIDEBAR_SECTIONS = 'md_sidebar_sections';
 let sidebarSections = {
     'recent-files': true,
     'recent-folders': true,
+    'git-panel': true,
     'folder-tree': true,
 };
 
@@ -185,7 +193,7 @@ const CSV_EXTENSIONS = new Set(['csv']);
 const PDF_EXTENSIONS = new Set(['pdf']);
 const SUPPORTED_FILE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, ...TEXT_EXTENSIONS, ...CSV_EXTENSIONS, ...PDF_EXTENSIONS]);
 const VDITOR_CDN = 'https://cdn.jsdelivr.net/npm/vditor@3.11.2';
-const VDITOR_TOOLBAR = ['headings', 'bold', 'italic', 'strike', '|', 'check', 'list', 'ordered-list', 'quote', '|', 'link', 'table', '|', 'inline-code', 'code', 'line', '|', 'undo', 'redo'];
+const VDITOR_TOOLBAR = ['bold', 'italic', 'strike', '|', 'quote', 'list', 'ordered-list', '|', 'inline-code', 'code', '|', 'link', 'table', '|', 'undo', 'redo'];
 
 // 搜尋狀態
 let searchMatches = [];
@@ -241,8 +249,7 @@ function isVditorActive() {
 }
 
 function getVditorThemeName() {
-    const theme = document.documentElement.getAttribute('data-theme');
-    return ['github-dark', 'catppuccin-mocha', 'tokyo-night'].includes(theme) ? 'dark' : 'classic';
+    return document.documentElement.getAttribute('data-theme') === 'github-dark' ? 'dark' : 'classic';
 }
 
 function updatePreviewSurfaceVisibility(useVditor) {
@@ -438,7 +445,6 @@ function enableDragScroll(container) {
     let pointerId = null;
     container.addEventListener('pointerdown', (event) => {
         if (event.button !== 0) return;
-        if (event.target.closest?.('[draggable="true"]')) return;
         isDragging = true;
         moved = false;
         pointerId = event.pointerId;
@@ -498,7 +504,7 @@ async function loadDirectoryEntries(dirPath) {
     }));
 }
 
-function renderRecentFileItems(list, container, emptyText, onClick, getIcon = (filePath) => getFileIconSvg(getFileExt(filePath))) {
+function renderRecentFileItems(list, container, emptyText, onClick) {
     if (!container) return;
     const visibleList = getRecentDisplayList(list);
     if (!visibleList.length) {
@@ -512,7 +518,7 @@ function renderRecentFileItems(list, container, emptyText, onClick, getIcon = (f
         button.className = getSidebarItemClass(active);
         button.type = 'button';
         button.innerHTML = `
-            <span class="sidebar-item-icon">${getIcon(filePath)}</span>
+            <span class="sidebar-item-icon">${getFileIconSvg(getFileExt(filePath))}</span>
             <span class="sidebar-item-text">${escapeHtml(formatSidebarLabel(filePath))}</span>
         `;
         button.title = filePath;
@@ -520,6 +526,304 @@ function renderRecentFileItems(list, container, emptyText, onClick, getIcon = (f
         container.appendChild(button);
     });
 }
+
+function getGitTargetPath() {
+    const tab = getActiveTab();
+    return currentFolderPath || tab?.filePath || tab?.dirPath || null;
+}
+
+function escapeGitPathLabel(filePath = '') {
+    const normalized = String(filePath || '').trim();
+    return normalized.length > 42 ? `…${normalized.slice(-42)}` : normalized;
+}
+
+function getGitBranchMeta() {
+    return [
+        gitState.ahead > 0 ? `↑${gitState.ahead}` : '',
+        gitState.behind > 0 ? `↓${gitState.behind}` : '',
+    ].filter(Boolean).join(' ');
+}
+
+function getGitActionFlags() {
+    const currentTab = getActiveTab();
+    return {
+        canRestoreCurrent: Boolean(currentTab?.filePath && isPathInsideFolder(currentTab.filePath, gitState.repoRoot)),
+        canCommit: gitState.changedFiles > 0,
+        canPush: gitState.ahead > 0,
+    };
+}
+
+function renderGitPanel() {
+    if (!gitPanel) return;
+    if (gitState.loading) {
+        gitPanel.innerHTML = '<div class="sidebar-empty">讀取 Git 狀態中…</div>';
+        renderGitFloatingPanel();
+        return;
+    }
+    if (!gitState.targetDir) {
+        gitPanel.innerHTML = '<button type="button" class="git-summary-btn" data-git-action="open">Git 尚未連結</button>';
+        bindGitPanelActions(gitPanel);
+        renderGitFloatingPanel();
+        return;
+    }
+    if (!gitState.available) {
+        gitPanel.innerHTML = `<button type="button" class="git-summary-btn" data-git-action="open">${escapeHtml(gitState.error || '系統找不到 Git')}</button>`;
+        bindGitPanelActions(gitPanel);
+        renderGitFloatingPanel();
+        return;
+    }
+    if (!gitState.isRepo) {
+        gitPanel.innerHTML = `
+            <button type="button" class="git-summary-btn" data-git-action="open">
+                <span>
+                    <strong>尚未啟用 Git</strong>
+                    <small>${escapeHtml(escapeGitPathLabel(gitState.targetDir))}</small>
+                </span>
+                <span class="git-summary-pill">初始化</span>
+            </button>
+        `;
+        bindGitPanelActions(gitPanel);
+        renderGitFloatingPanel();
+        return;
+    }
+
+    const branchMeta = getGitBranchMeta();
+    gitPanel.innerHTML = `
+        <button type="button" class="git-summary-btn" data-git-action="open">
+            <span>
+                <strong>${escapeHtml(gitState.repoName || 'Git 倉庫')}</strong>
+                <small>${escapeHtml(gitState.branch || 'HEAD')}${branchMeta ? ` · ${escapeHtml(branchMeta)}` : ''}</small>
+            </span>
+            <span class="git-summary-stats">
+                <span class="add">+${gitState.insertions}</span>
+                <span class="del">-${gitState.deletions}</span>
+                <span>${gitState.changedFiles} 檔</span>
+            </span>
+        </button>
+    `;
+    bindGitPanelActions(gitPanel);
+    renderGitFloatingPanel();
+}
+
+function renderGitFloatingPanel() {
+    if (!gitFloatingBody || !gitFloatingSubtitle) return;
+    const location = gitState.repoRoot || gitState.targetDir || '未選擇資料夾';
+    gitFloatingSubtitle.textContent = location;
+
+    if (gitState.loading) {
+        gitFloatingBody.innerHTML = '<div class="sidebar-empty">讀取 Git 狀態中…</div>';
+        return;
+    }
+    if (!gitState.targetDir) {
+        gitFloatingBody.innerHTML = '<div class="sidebar-empty">開啟資料夾或檔案後，這裡會顯示 Git 狀態。</div>';
+        return;
+    }
+    if (!gitState.available) {
+        gitFloatingBody.innerHTML = `<div class="sidebar-empty">${escapeHtml(gitState.error || '系統找不到 Git')}</div>`;
+        return;
+    }
+    if (!gitState.isRepo) {
+        gitFloatingBody.innerHTML = `
+            <div class="git-card git-card-floating">
+                <div class="git-card-head">
+                    <div class="git-card-title">尚未啟用 Git</div>
+                </div>
+                <div class="git-empty-copy">這個資料夾目前不是 Git 倉庫。若你想用 Git 管理回復，可以直接初始化。</div>
+                <div class="git-card-row">
+                    <span class="git-card-label">位置</span>
+                    <span class="git-card-value" title="${escapeHtml(gitState.targetDir)}">${escapeHtml(escapeGitPathLabel(gitState.targetDir))}</span>
+                </div>
+                <div class="git-card-actions">
+                    <button type="button" class="git-action-btn primary" data-git-action="init">初始化 Git</button>
+                    <button type="button" class="git-action-btn" data-git-action="refresh">重新整理</button>
+                </div>
+            </div>
+        `;
+        bindGitPanelActions(gitFloatingBody);
+        return;
+    }
+
+    const branchMeta = getGitBranchMeta();
+    const fileItems = Array.isArray(gitState.files) && gitState.files.length
+        ? `<ol class="git-file-list">${gitState.files.map(item => `<li>${escapeHtml(item.path)}</li>`).join('')}</ol>`
+        : '<div class="git-empty-copy">目前工作樹乾淨。</div>';
+    const { canRestoreCurrent, canCommit, canPush } = getGitActionFlags();
+
+    gitFloatingBody.innerHTML = `
+        <div class="git-card git-card-floating">
+            <div class="git-card-head">
+                <div>
+                    <div class="git-card-title">${escapeHtml(gitState.repoName || 'Git 倉庫')}</div>
+                    <div class="git-card-subtitle" title="${escapeHtml(gitState.repoRoot || '')}">${escapeHtml(escapeGitPathLabel(gitState.repoRoot || ''))}</div>
+                </div>
+                <div class="git-diff-total">
+                    <span class="add">+${gitState.insertions}</span>
+                    <span class="del">-${gitState.deletions}</span>
+                </div>
+            </div>
+            <div class="git-branch-row">
+                <span class="git-branch-pill">⑂ ${escapeHtml(gitState.branch || 'HEAD')}</span>
+                <span class="git-card-value">${branchMeta || '本機'}</span>
+            </div>
+            <div class="git-card-row">
+                <span class="git-card-label">變更</span>
+                <span class="git-card-value">${gitState.changedFiles} 檔</span>
+            </div>
+            <div class="git-card-row">
+                <span class="git-card-label">狀態</span>
+                <span class="git-card-value">staged ${gitState.stagedFiles} / unstaged ${gitState.unstagedFiles} / untracked ${gitState.untrackedFiles}</span>
+            </div>
+            ${fileItems}
+            <div class="git-card-actions">
+                <button type="button" class="git-action-btn" data-git-action="refresh">重新整理</button>
+                <button type="button" class="git-action-btn danger" data-git-action="restore-file" ${canRestoreCurrent ? '' : 'disabled'}>回復目前檔案</button>
+                <button type="button" class="git-action-btn danger" data-git-action="restore-all" ${gitState.changedFiles ? '' : 'disabled'}>全部回復</button>
+                <button type="button" class="git-action-btn primary" data-git-action="commit" ${canCommit ? '' : 'disabled'}>送交</button>
+                <button type="button" class="git-action-btn" data-git-action="push" ${canPush ? '' : 'disabled'}>推送</button>
+            </div>
+        </div>
+    `;
+    bindGitPanelActions(gitFloatingBody);
+}
+
+function openGitFloatingPanel() {
+    gitFloatingOpen = true;
+    renderGitFloatingPanel();
+    gitFloatingOverlay?.classList.remove('hidden');
+}
+
+function closeGitFloatingPanel() {
+    gitFloatingOpen = false;
+    gitFloatingOverlay?.classList.add('hidden');
+}
+
+async function refreshGitState(options = {}) {
+    if (!gitPanel) return;
+    const { quiet = false } = options;
+    const targetPath = getGitTargetPath();
+    gitState = {
+        ...gitState,
+        loading: true,
+        targetDir: targetPath ? (currentFolderPath || getActiveTab()?.dirPath || targetPath) : null,
+        error: '',
+    };
+    renderGitPanel();
+    const result = targetPath
+        ? await window.electronAPI.gitGetContext(targetPath)
+        : { success: true, available: true, isRepo: false, targetDir: null };
+    if (!result?.success && !quiet) {
+        showSaveToast(result?.error || '讀取 Git 狀態失敗');
+    }
+    gitState = {
+        loading: false,
+        available: result?.available !== false,
+        isRepo: Boolean(result?.isRepo),
+        targetDir: result?.targetDir || getGitTargetPath(),
+        repoRoot: result?.repoRoot || null,
+        repoName: result?.repoName || null,
+        branch: result?.branch || null,
+        changedFiles: result?.changedFiles || 0,
+        stagedFiles: result?.stagedFiles || 0,
+        unstagedFiles: result?.unstagedFiles || 0,
+        untrackedFiles: result?.untrackedFiles || 0,
+        insertions: result?.insertions || 0,
+        deletions: result?.deletions || 0,
+        ahead: result?.ahead || 0,
+        behind: result?.behind || 0,
+        files: Array.isArray(result?.files) ? result.files : [],
+        error: result?.error || '',
+    };
+    renderGitPanel();
+}
+
+async function gitInitCurrentTarget() {
+    const targetPath = getGitTargetPath();
+    if (!targetPath) return;
+    if (!confirm('這個資料夾尚未啟用 Git，要現在初始化嗎？')) return;
+    const result = await window.electronAPI.gitInitRepo(targetPath);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 初始化失敗');
+        return;
+    }
+    showSaveToast('已初始化 Git 倉庫');
+    await refreshGitState();
+}
+
+async function gitCommitCurrentRepo() {
+    if (!gitState.isRepo || !gitState.repoRoot) return;
+    const message = (prompt('輸入 commit 訊息', 'chore: update notes') || '').trim();
+    if (!message) return;
+    const result = await window.electronAPI.gitCommit(gitState.repoRoot, message);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 送交失敗');
+        return;
+    }
+    showSaveToast('已送交變更');
+    await refreshGitState();
+}
+
+async function gitPushCurrentRepo() {
+    if (!gitState.isRepo || !gitState.repoRoot) return;
+    const result = await window.electronAPI.gitPush(gitState.repoRoot);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 推送失敗');
+        return;
+    }
+    showSaveToast('已推送');
+    await refreshGitState();
+}
+
+async function gitRestoreCurrentFile() {
+    const tab = getActiveTab();
+    if (!gitState.isRepo || !gitState.repoRoot || !tab?.filePath) return;
+    if (!confirm(`要把目前檔案回復到 HEAD 嗎？\n\n${tab.title}`)) return;
+    const result = await window.electronAPI.gitRestorePath(gitState.repoRoot, tab.filePath);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 回復失敗');
+        return;
+    }
+    await reloadTabFromDisk(tab, { notify: false });
+    showSaveToast('已回復目前檔案');
+    await refreshGitState();
+}
+
+async function gitRestoreAllFiles() {
+    if (!gitState.isRepo || !gitState.repoRoot) return;
+    const warning = '要把整個 Git 倉庫回復到 HEAD 嗎？\n\n這會丟棄尚未提交的已追蹤變更，並清掉未追蹤檔案。';
+    if (!confirm(warning)) return;
+    const result = await window.electronAPI.gitRestoreAll(gitState.repoRoot);
+    if (!result?.success) {
+        showSaveToast(result?.error || 'Git 全部回復失敗');
+        return;
+    }
+    for (const tab of tabs) {
+        if (!tab.filePath || !isPathInsideFolder(tab.filePath, gitState.repoRoot)) continue;
+        await reloadTabFromDisk(tab, { notify: false });
+    }
+    showSaveToast('已回復整個倉庫');
+    await refreshGitState();
+}
+
+function bindGitPanelActions(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-git-action]').forEach(button => {
+        button.addEventListener('click', async () => {
+            const action = button.dataset.gitAction;
+            if (action === 'open') openGitFloatingPanel();
+            if (action === 'refresh') await refreshGitState({ quiet: true });
+            if (action === 'init') await gitInitCurrentTarget();
+            if (action === 'commit') await gitCommitCurrentRepo();
+            if (action === 'push') await gitPushCurrentRepo();
+            if (action === 'restore-file') await gitRestoreCurrentFile();
+            if (action === 'restore-all') await gitRestoreAllFiles();
+        });
+    });
+}
+
+gitFloatingCloseBtn?.addEventListener('click', closeGitFloatingPanel);
+gitFloatingOverlay?.addEventListener('click', (event) => {
+    if (event.target === gitFloatingOverlay) closeGitFloatingPanel();
+});
 
 async function renderTreeNode(dirPath, depth = 0) {
     const entries = await loadDirectoryEntries(dirPath);
@@ -530,7 +834,7 @@ async function renderTreeNode(dirPath, depth = 0) {
         const isExpanded = entry.isDirectory && treeState.expanded.has(entry.path);
         const isActive = selectedSidebarPath === entry.path || currentFilePath === entry.path;
         row.innerHTML = `
-            <button class="${getSidebarItemClass(isActive)} tree-item" data-path="${escapeHtml(entry.path)}" data-is-directory="${entry.isDirectory}" draggable="${!entry.isDirectory}" data-depth="${depth}" style="--tree-depth:${depth}">
+            <button class="${getSidebarItemClass(isActive)} tree-item" data-path="${escapeHtml(entry.path)}" data-depth="${depth}" style="--tree-depth:${depth}">
                 <span class="tree-caret">${entry.isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
                 <span class="sidebar-item-icon">${entry.isDirectory ? getFolderIconSvg(isExpanded) : getFileIconSvg(getFileExt(entry.name))}</span>
                 <span class="sidebar-item-text">${escapeHtml(entry.name)}</span>
@@ -548,20 +852,17 @@ async function renderTreeNode(dirPath, depth = 0) {
     return fragment;
 }
 
-async function hydrateExpandedTree(renderVersion) {
-    const isCurrentRender = () => renderVersion === sidebarRenderVersion;
+async function hydrateExpandedTree() {
     if (!currentFolderPath) {
-        if (!isCurrentRender()) return false;
         folderTree.innerHTML = '<div class="sidebar-empty">尚未開啟資料夾</div>';
-        return true;
+        return;
     }
-    const rootPath = currentFolderPath;
-    const entries = await loadDirectoryEntries(rootPath);
-    if (!isCurrentRender() || rootPath !== currentFolderPath) return false;
+    const entries = await loadDirectoryEntries(currentFolderPath);
     if (!entries.length) {
         folderTree.innerHTML = '<div class="sidebar-empty">資料夾內沒有支援的檔案</div>';
-        return true;
+        return;
     }
+    folderTree.innerHTML = '';
     const fragment = document.createDocumentFragment();
     for (const entry of entries) {
         const row = document.createElement('div');
@@ -572,8 +873,6 @@ async function hydrateExpandedTree(renderVersion) {
         button.className = `${getSidebarItemClass(isActive)} tree-item`;
         button.type = 'button';
         button.dataset.path = entry.path;
-        button.dataset.isDirectory = String(entry.isDirectory);
-        button.draggable = !entry.isDirectory;
         button.style.setProperty('--tree-depth', '0');
         button.innerHTML = `
             <span class="tree-caret">${entry.isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
@@ -589,10 +888,7 @@ async function hydrateExpandedTree(renderVersion) {
         }
         fragment.appendChild(row);
     }
-    if (!isCurrentRender() || rootPath !== currentFolderPath) return false;
-    folderTree.innerHTML = '';
     folderTree.appendChild(fragment);
-    return true;
 }
 
 async function buildTreeBranch(dirPath, depth) {
@@ -607,8 +903,6 @@ async function buildTreeBranch(dirPath, depth) {
         button.className = `${getSidebarItemClass(isActive)} tree-item`;
         button.type = 'button';
         button.dataset.path = entry.path;
-        button.dataset.isDirectory = String(entry.isDirectory);
-        button.draggable = !entry.isDirectory;
         button.style.setProperty('--tree-depth', String(depth));
         button.innerHTML = `
             <span class="tree-caret">${entry.isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
@@ -628,24 +922,16 @@ async function buildTreeBranch(dirPath, depth) {
 }
 
 async function renderSidebar() {
-    const renderVersion = ++sidebarRenderVersion;
-    const visibleFolderPath = selectedFolderPath || currentFolderPath;
-    if (sidebarFolderName) sidebarFolderName.textContent = visibleFolderPath ? formatSidebarLabel(visibleFolderPath) : '未開啟資料夾';
-    if (sidebarFolderPath) sidebarFolderPath.textContent = visibleFolderPath || '使用 Cmd+Shift+O 或按鈕開啟資料夾';
-    if (newFileInFolderBtn) newFileInFolderBtn.disabled = !visibleFolderPath;
-    if (newFolderInFolderBtn) newFolderInFolderBtn.disabled = !visibleFolderPath;
+    if (sidebarFolderName) sidebarFolderName.textContent = currentFolderPath ? formatSidebarLabel(currentFolderPath) : '未開啟資料夾';
+    if (sidebarFolderPath) sidebarFolderPath.textContent = currentFolderPath || '使用 Cmd+Shift+O 或按鈕開啟資料夾';
+    renderGitPanel();
     renderRecentFileItems(recentFilesState, recentFilesList, '尚無最近檔案', async (filePath) => {
         await openFile(filePath);
     });
-    renderRecentFileItems(
-        recentFolders,
-        recentFoldersList,
-        '尚無最近資料夾',
-        async (folderPath) => { await openFolder(folderPath); },
-        () => getFolderIconSvg(false),
-    );
-    const treeRendered = await hydrateExpandedTree(renderVersion);
-    if (!treeRendered || renderVersion !== sidebarRenderVersion) return;
+    renderRecentFileItems(recentFolders, recentFoldersList, '尚無最近資料夾', async (folderPath) => {
+        await openFolder(folderPath);
+    });
+    await hydrateExpandedTree();
     applySidebarChrome();
     enableDragScroll(recentFilesList);
     enableDragScroll(recentFoldersList);
@@ -656,7 +942,6 @@ async function openFolder(folderPath, options = {}) {
     if (!folderPath) return;
     await window.electronAPI.addRecentFolder(folderPath);
     currentFolderPath = folderPath;
-    selectedFolderPath = folderPath;
     treeState.loaded.clear();
     treeState.expanded.clear();
     treeState.expanded.add(folderPath);
@@ -665,6 +950,7 @@ async function openFolder(folderPath, options = {}) {
     }
     recentFilesState = await window.electronAPI.getRecentFiles();
     await renderSidebar();
+    await refreshGitState({ quiet: true });
     showSaveToast('已開啟資料夾 ' + formatSidebarLabel(folderPath));
 }
 
@@ -721,6 +1007,15 @@ function updateEditorModeUI(tab = getActiveTab()) {
             : fileType === 'text'
                 ? '純文字'
                 : 'Markdown';
+    previewModeLabel.textContent = fileType === 'pdf'
+        ? 'PDF 預覽'
+        : fileType === 'text'
+            ? '文字預覽'
+            : fileType === 'csv'
+                ? 'CSV 預覽'
+                : shouldUseVditorPreview(tab)
+                    ? '預覽編輯'
+                    : '預覽';
 }
 
 function updateEditorSearchMirror() {
@@ -988,6 +1283,7 @@ async function activateTab(tabId) {
         tab.externalChanged = false;
     }
     await refreshActiveTabView();
+    await refreshGitState({ quiet: true });
 }
 
 function ensureAtLeastOneTab() {
@@ -1007,12 +1303,11 @@ async function createUntitledTab() {
     await refreshActiveTabView();
 }
 
-async function closeTab(tabId, options = {}) {
-    const { skipModifiedConfirmation = false } = options;
+async function closeTab(tabId) {
     const idx = tabs.findIndex(tab => tab.id === tabId);
     if (idx === -1) return;
     const tab = tabs[idx];
-    if (!skipModifiedConfirmation && tab.isModified && !confirm(`分頁「${tab.title}」尚未儲存，確定要關閉？`)) return;
+    if (tab.isModified && !confirm(`分頁「${tab.title}」尚未儲存，確定要關閉？`)) return;
     if (tab.filePath) await window.electronAPI.unwatchCurrentFile(tab.filePath);
     tabs.splice(idx, 1);
     if (!tabs.length) {
@@ -1028,20 +1323,6 @@ async function closeTab(tabId, options = {}) {
     }
 }
 
-async function closeAllTabs() {
-    const modifiedTabs = tabs.filter(tab => tab.isModified);
-    for (const tab of modifiedTabs) {
-        if (!confirm(`分頁「${tab.title}」尚未儲存，確定要關閉？`)) {
-            showSaveToast('已取消關閉所有 Tab');
-            return;
-        }
-    }
-    for (const tab of [...tabs]) {
-        await closeTab(tab.id, { skipModifiedConfirmation: true });
-    }
-    showSaveToast('已關閉所有 Tab');
-}
-
 tabsList.addEventListener('click', async (e) => {
     const closeId = e.target.closest('[data-close-tab]')?.dataset.closeTab;
     if (closeId) {
@@ -1051,20 +1332,6 @@ tabsList.addEventListener('click', async (e) => {
     }
     const tabId = e.target.closest('[data-tab-id]')?.dataset.tabId;
     if (tabId) await activateTab(tabId);
-});
-tabsList.addEventListener('contextmenu', (event) => {
-    const tab = event.target.closest('[data-tab-id]');
-    if (!tab || !tabContextMenu) return;
-    event.preventDefault();
-    tabContextMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 180)}px`;
-    tabContextMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 52)}px`;
-    tabContextMenu.classList.remove('hidden');
-});
-tabContextMenu?.addEventListener('click', async (event) => {
-    const action = event.target.closest('[data-tab-action]')?.dataset.tabAction;
-    if (action !== 'close-all') return;
-    tabContextMenu.classList.add('hidden');
-    await closeAllTabs();
 });
 newTabBtn.addEventListener('click', async () => {
     await createUntitledTab();
@@ -1094,239 +1361,6 @@ openFolderBtn?.addEventListener('click', async () => {
     }
 });
 
-function getNewItemParentPath() {
-    return selectedFolderPath || currentFolderPath;
-}
-
-function closeCreateItemDialog() {
-    createItemDialogState = null;
-    workspaceCreateOverlay?.classList.add('hidden');
-    workspaceCreateOverlay?.setAttribute('aria-hidden', 'true');
-}
-
-function openCreateItemDialog(kind, parentPath = getNewItemParentPath()) {
-    if (!parentPath) {
-        showSaveToast('請先開啟資料夾');
-        return;
-    }
-    const isFile = kind === 'file';
-    createItemDialogState = { kind, parentPath };
-    workspaceCreateTitle.textContent = isFile ? '新增檔案' : '新增資料夾';
-    workspaceCreatePath.textContent = parentPath;
-    workspaceCreateLabel.textContent = isFile ? '檔案名稱' : '資料夾名稱';
-    workspaceCreateHint.textContent = isFile ? '未輸入副檔名時，會自動加上 .md。' : '資料夾會建立在目前選取的位置。';
-    workspaceCreateSubmitBtn.textContent = isFile ? '建立檔案' : '建立資料夾';
-    workspaceCreateName.value = isFile ? '未命名.md' : '新資料夾';
-    workspaceCreateOverlay.classList.remove('hidden');
-    workspaceCreateOverlay.setAttribute('aria-hidden', 'false');
-    setTimeout(() => {
-        workspaceCreateName?.focus();
-        workspaceCreateName?.select();
-    }, 0);
-}
-
-async function createItemInCurrentFolder(kind, parentPath, rawName) {
-    const isFile = kind === 'file';
-    let name = String(rawName || '').trim();
-    if (!name) return;
-    if (isFile && !name.includes('.')) name += '.md';
-
-    const result = isFile
-        ? await window.electronAPI.createFile(parentPath, name)
-        : await window.electronAPI.createFolder(parentPath, name);
-    if (!result?.success) {
-        showSaveToast(result?.error || `建立${isFile ? '檔案' : '資料夾'}失敗`);
-        return;
-    }
-    treeState.loaded.delete(parentPath);
-    if (!isFile) treeState.expanded.add(parentPath);
-    await renderSidebar();
-    if (isFile) await openFile(result.filePath);
-    else showSaveToast(`已建立資料夾 ${name}`);
-}
-
-function closeTreeContextMenu() {
-    treeContextMenu?.classList.add('hidden');
-}
-
-function updateTreeContextMenu() {
-    if (!treeContextMenu) return;
-    const isFile = Boolean(treeContextTarget && !treeContextTarget.isDirectory);
-    const canPaste = Boolean(treeContextTarget?.isDirectory && copiedTreeFilePath);
-    const canDeleteFolder = Boolean(treeContextTarget?.isDirectory && treeContextTarget.path !== currentFolderPath);
-    treeContextMenu.querySelector('[data-tree-file-action="copy"]')?.classList.toggle('hidden', !isFile);
-    treeContextMenu.querySelector('[data-tree-file-action="delete"]')?.classList.toggle('hidden', !isFile);
-    treeContextMenu.querySelector('[data-tree-file-action="paste"]')?.classList.toggle('hidden', !canPaste);
-    treeContextMenu.querySelector('[data-tree-folder-action="delete"]')?.classList.toggle('hidden', !canDeleteFolder);
-    treeContextMenu.querySelector('[data-tree-file-action="separator"]')?.classList.toggle('hidden', !isFile && !canPaste && !canDeleteFolder);
-}
-
-function clearTreeDragState() {
-    folderTree?.querySelectorAll('.tree-dragging, .tree-drop-target').forEach(item => {
-        item.classList.remove('tree-dragging', 'tree-drop-target');
-    });
-}
-
-async function updateOpenTabsAfterFileMove(sourcePath, targetPath) {
-    const movedTabs = tabs.filter(tab => tab.filePath === sourcePath);
-    if (!movedTabs.length) return;
-
-    const targetDirPath = await window.electronAPI.pathDirname(targetPath);
-    for (const tab of movedTabs) {
-        await window.electronAPI.unwatchCurrentFile(sourcePath);
-        tab.filePath = targetPath;
-        tab.dirPath = targetDirPath;
-        tab.fileExt = getFileExt(targetPath);
-        tab.fileType = getFileTypeFromExt(tab.fileExt);
-        updateTabTitle(tab);
-        if (tab.fileType !== 'pdf') await window.electronAPI.watchCurrentFile(targetPath);
-    }
-
-    if (currentFilePath === sourcePath) {
-        currentFilePath = targetPath;
-        currentDirPath = targetDirPath;
-        currentFileExt = getFileExt(targetPath);
-        currentFileType = getFileTypeFromExt(currentFileExt);
-        statFile.textContent = pathBasename(targetPath);
-        document.title = (isModified ? '● ' : '') + pathBasename(targetPath) + ' - shenMD';
-    }
-    renderTabs();
-}
-
-async function moveTreeFile(sourcePath, destinationDir) {
-    if (!sourcePath || !destinationDir) return;
-    const result = await window.electronAPI.moveFile(sourcePath, destinationDir);
-    if (!result?.success) {
-        showSaveToast(result?.error || '移動檔案失敗');
-        return;
-    }
-
-    await updateOpenTabsAfterFileMove(sourcePath, result.filePath);
-    selectedFolderPath = destinationDir;
-    selectedSidebarPath = result.filePath;
-    treeState.loaded.delete(result.sourceDirPath);
-    treeState.loaded.delete(destinationDir);
-    await renderSidebar();
-    showSaveToast(`已移動到 ${formatSidebarLabel(destinationDir)}`);
-}
-
-async function pasteTreeFile(destinationDir) {
-    if (!copiedTreeFilePath || !destinationDir) return;
-    const result = await window.electronAPI.copyFile(copiedTreeFilePath, destinationDir);
-    if (!result?.success) {
-        showSaveToast(result?.error || '複製檔案失敗');
-        return;
-    }
-    selectedFolderPath = destinationDir;
-    selectedSidebarPath = result.filePath;
-    treeState.loaded.delete(destinationDir);
-    recentFilesState = await window.electronAPI.getRecentFiles();
-    await renderSidebar();
-    showSaveToast(`已複製到 ${formatSidebarLabel(destinationDir)}`);
-}
-
-async function deleteTreeFile(filePath) {
-    const openTabs = tabs.filter(tab => tab.filePath === filePath);
-    if (openTabs.some(tab => tab.isModified)) {
-        showSaveToast('請先儲存或放棄這個檔案的未儲存修改');
-        return;
-    }
-    if (!confirm(`確定要永久刪除「${pathBasename(filePath)}」嗎？`)) return;
-    const result = await window.electronAPI.deleteFile(filePath);
-    if (!result?.success) {
-        showSaveToast(result?.error || '刪除檔案失敗');
-        return;
-    }
-    for (const tab of openTabs) await closeTab(tab.id);
-    treeState.loaded.delete(result.parentPath);
-    selectedFolderPath = result.parentPath;
-    selectedSidebarPath = null;
-    recentFilesState = await window.electronAPI.getRecentFiles();
-    await renderSidebar();
-    showSaveToast(`已刪除 ${pathBasename(filePath)}`);
-}
-
-async function deleteTreeFolder(folderPath) {
-    const openTabs = tabs.filter(tab => tab.filePath && isPathInsideFolder(tab.filePath, folderPath));
-    if (openTabs.some(tab => tab.isModified)) {
-        showSaveToast('請先儲存或放棄資料夾內檔案的未儲存修改');
-        return;
-    }
-    if (!confirm(`確定要永久刪除資料夾「${pathBasename(folderPath)}」及其所有內容嗎？`)) return;
-    const result = await window.electronAPI.deleteFolder(folderPath);
-    if (!result?.success) {
-        showSaveToast(result?.error || '刪除資料夾失敗');
-        return;
-    }
-    for (const tab of openTabs) await closeTab(tab.id, { skipModifiedConfirmation: true });
-    for (const key of treeState.loaded.keys()) {
-        if (isPathInsideFolder(key, folderPath)) treeState.loaded.delete(key);
-    }
-    treeState.loaded.delete(result.parentPath);
-    for (const key of treeState.expanded) {
-        if (isPathInsideFolder(key, folderPath)) treeState.expanded.delete(key);
-    }
-    if (copiedTreeFilePath && isPathInsideFolder(copiedTreeFilePath, folderPath)) {
-        copiedTreeFilePath = null;
-    }
-    selectedFolderPath = result.parentPath;
-    selectedSidebarPath = null;
-    recentFilesState = await window.electronAPI.getRecentFiles();
-    recentFolders = await window.electronAPI.getRecentFolders();
-    await renderSidebar();
-    showSaveToast(`已刪除資料夾 ${pathBasename(folderPath)}`);
-}
-
-newFileInFolderBtn?.addEventListener('click', () => openCreateItemDialog('file'));
-newFolderInFolderBtn?.addEventListener('click', () => openCreateItemDialog('folder'));
-workspaceCreateCancelBtn?.addEventListener('click', closeCreateItemDialog);
-workspaceCreateCancelBtnSecondary?.addEventListener('click', closeCreateItemDialog);
-workspaceCreateOverlay?.addEventListener('click', (event) => {
-    if (event.target === workspaceCreateOverlay) closeCreateItemDialog();
-});
-workspaceCreateDialog?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!createItemDialogState) return;
-    const { kind, parentPath } = createItemDialogState;
-    const name = workspaceCreateName.value;
-    workspaceCreateSubmitBtn.disabled = true;
-    await createItemInCurrentFolder(kind, parentPath, name);
-    workspaceCreateSubmitBtn.disabled = false;
-    if (createItemDialogState) closeCreateItemDialog();
-});
-
-treeContextMenu?.addEventListener('click', async (event) => {
-    const action = event.target.closest('[data-tree-create]')?.dataset.treeCreate;
-    if (action) {
-        closeTreeContextMenu();
-        openCreateItemDialog(action);
-        return;
-    }
-    const fileAction = event.target.closest('[data-tree-file-action]')?.dataset.treeFileAction;
-    const folderAction = event.target.closest('[data-tree-folder-action]')?.dataset.treeFolderAction;
-    if ((!fileAction && !folderAction) || !treeContextTarget) return;
-    const { path: targetPath, isDirectory } = treeContextTarget;
-    closeTreeContextMenu();
-    if (fileAction === 'copy' && !isDirectory) {
-        copiedTreeFilePath = targetPath;
-        showSaveToast(`已複製 ${pathBasename(targetPath)}，請在目標資料夾按右鍵貼上`);
-    }
-    if (fileAction === 'paste' && isDirectory) await pasteTreeFile(targetPath);
-    if (fileAction === 'delete' && !isDirectory) await deleteTreeFile(targetPath);
-    if (folderAction === 'delete' && isDirectory && targetPath !== currentFolderPath) await deleteTreeFolder(targetPath);
-});
-
-document.addEventListener('click', (event) => {
-    if (!treeContextMenu?.contains(event.target)) closeTreeContextMenu();
-    if (!tabContextMenu?.contains(event.target)) tabContextMenu?.classList.add('hidden');
-});
-document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    closeCreateItemDialog();
-    closeTreeContextMenu();
-    tabContextMenu?.classList.add('hidden');
-});
-
 folderTree?.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-path]');
     if (!button) return;
@@ -1337,81 +1371,12 @@ folderTree?.addEventListener('click', async (event) => {
         return;
     }
     if (statResult.stat.isDirectory) {
-        selectedFolderPath = targetPath;
-        selectedSidebarPath = targetPath;
         if (treeState.expanded.has(targetPath)) treeState.expanded.delete(targetPath);
         else treeState.expanded.add(targetPath);
         await renderSidebar();
         return;
     }
     await openFile(targetPath);
-});
-
-folderTree?.addEventListener('dragstart', (event) => {
-    const item = event.target.closest('.tree-item[data-path]');
-    if (!item || item.dataset.isDirectory === 'true') {
-        event.preventDefault();
-        return;
-    }
-    clearTreeDragState();
-    item.classList.add('tree-dragging');
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', item.dataset.path);
-    closeTreeContextMenu();
-});
-
-folderTree?.addEventListener('dragover', (event) => {
-    const item = event.target.closest('.tree-item[data-path][data-is-directory="true"]');
-    if (!item) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    folderTree.querySelectorAll('.tree-drop-target').forEach(target => {
-        if (target !== item) target.classList.remove('tree-drop-target');
-    });
-    item.classList.add('tree-drop-target');
-});
-
-folderTree?.addEventListener('dragleave', (event) => {
-    const item = event.target.closest('.tree-item.tree-drop-target');
-    if (item && !item.contains(event.relatedTarget)) item.classList.remove('tree-drop-target');
-});
-
-folderTree?.addEventListener('dragend', clearTreeDragState);
-
-folderTree?.addEventListener('drop', async (event) => {
-    const item = event.target.closest('.tree-item[data-path][data-is-directory="true"]');
-    if (!item) return;
-    event.preventDefault();
-    const sourcePath = event.dataTransfer.getData('text/plain');
-    const destinationDir = item.dataset.path;
-    clearTreeDragState();
-    await moveTreeFile(sourcePath, destinationDir);
-});
-
-folderTree?.addEventListener('contextmenu', async (event) => {
-    if (!currentFolderPath) return;
-    event.preventDefault();
-    const item = event.target.closest('[data-path]');
-    let targetFolder = currentFolderPath;
-    let targetPath = currentFolderPath;
-    let isDirectory = true;
-    if (item?.dataset.path) {
-        const statResult = await window.electronAPI.statPath(item.dataset.path);
-        if (!statResult?.success) return;
-        targetPath = item.dataset.path;
-        isDirectory = statResult.stat.isDirectory;
-        targetFolder = statResult.stat.isDirectory
-            ? item.dataset.path
-            : await window.electronAPI.pathDirname(item.dataset.path);
-    }
-    selectedFolderPath = targetFolder;
-    selectedSidebarPath = targetFolder;
-    treeContextTarget = { path: targetPath, isDirectory };
-    updateTreeContextMenu();
-    treeContextMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 180)}px`;
-    treeContextMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 180)}px`;
-    treeContextMenu.classList.remove('hidden');
-    await renderSidebar();
 });
 
 // ========== 字型大小 ==========
@@ -1430,13 +1395,17 @@ applyFontSize();
 // ========== 檢視模式 ==========
 const LS_VIEW = 'md_view_mode';
 const LS_PANELS = 'md_visible_panels';
-let visiblePanels = new Set(['preview']);
+let visiblePanels = new Set(['editor', 'preview']);
 const viewBtns = {
+    edit:    document.getElementById('viewEdit'),
+    split:   document.getElementById('viewSplit'),
+    preview: document.getElementById('viewPreview'),
     terminal: document.getElementById('viewTerminal'),
 };
 
 function getVisibleContentPanels() {
     return [
+        { id: 'editor', el: editorPanel },
         { id: 'preview', el: previewPanel },
         { id: 'terminal', el: terminalDrawer },
     ].filter(panel => visiblePanels.has(panel.id));
@@ -1475,21 +1444,25 @@ function setPanelWidthStyles() {
 
 function applyVisiblePanels(options = {}) {
     const { persist = true } = options;
-    visiblePanels.add('preview');
+    if (visiblePanels.size === 0) visiblePanels.add('editor');
 
     const activePanels = getVisibleContentPanels();
     const rh = document.getElementById('resize-handle');
     normalizePanelWidths();
 
-    editorPanel.style.display = 'none';
-    previewPanel.style.display = 'flex';
+    editorPanel.style.display = visiblePanels.has('editor') ? 'flex' : 'none';
+    previewPanel.style.display = visiblePanels.has('preview') ? 'flex' : 'none';
     terminalDrawer.style.display = visiblePanels.has('terminal') ? 'flex' : 'none';
-    terminalWidthHandle.style.display = visiblePanels.has('terminal') ? 'block' : 'none';
+    terminalWidthHandle.style.display = visiblePanels.has('preview') && visiblePanels.has('terminal') ? 'block' : 'none';
     setPanelWidthStyles();
 
     terminalVisible = visiblePanels.has('terminal');
-    viewBtns.terminal?.classList.toggle('active', terminalVisible);
-    if (rh) rh.style.display = 'none';
+    Object.values(viewBtns).forEach(b => b.classList.remove('active'));
+    viewBtns.edit.classList.toggle('active', visiblePanels.has('editor'));
+    viewBtns.preview.classList.toggle('active', visiblePanels.has('preview'));
+    viewBtns.terminal.classList.toggle('active', visiblePanels.has('terminal'));
+    viewBtns.split.classList.toggle('active', visiblePanels.has('editor') && visiblePanels.has('preview'));
+    if (rh) rh.style.display = visiblePanels.has('editor') && activePanels.length > 1 ? 'block' : 'none';
     if (persist) saveVisiblePanels();
     updateEditorModeUI();
     if (terminalVisible) {
@@ -1506,34 +1479,53 @@ function togglePanel(panelId) {
 }
 
 function setViewMode(mode) {
-    if (mode !== 'terminal') return;
-    if (visiblePanels.has('terminal')) {
-        visiblePanels.delete('terminal');
-        panelWidths.preview = 100;
+    if (mode === 'split') {
+        visiblePanels = new Set(['editor', 'preview']);
+        panelWidths.editor = 50;
+        panelWidths.preview = 50;
+    } else if (mode === 'edit') {
+        togglePanel('editor');
+        return;
+    } else if (mode === 'preview') {
+        togglePanel('preview');
+        return;
+    } else if (mode === 'terminal') {
+        togglePanel('terminal');
+        return;
     } else {
-        visiblePanels.add('terminal');
-        panelWidths.preview = 70;
-        panelWidths.terminal = 30;
+        visiblePanels = new Set(['editor', 'preview']);
     }
+    localStorage.setItem(LS_VIEW, mode);
     applyVisiblePanels();
 }
 
 function restoreVisiblePanels() {
-    visiblePanels = new Set(['preview']);
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LS_PANELS) || 'null');
+        if (Array.isArray(parsed)) {
+            const allowed = parsed.filter(panel => ['editor', 'preview', 'terminal'].includes(panel));
+            if (allowed.length > 0) visiblePanels = new Set(allowed);
+        } else {
+            const legacyMode = localStorage.getItem(LS_VIEW) || 'split';
+            visiblePanels = legacyMode === 'edit'
+                ? new Set(['editor'])
+                : legacyMode === 'preview'
+                    ? new Set(['preview'])
+                    : new Set(['editor', 'preview']);
+        }
+    } catch (e) {
+        visiblePanels = new Set(['editor', 'preview']);
+    }
     applyVisiblePanels({ persist: false });
 }
 
-viewBtns.terminal?.addEventListener('click', () => setViewMode('terminal'));
+viewBtns.edit.addEventListener('click',    () => setViewMode('edit'));
+viewBtns.split.addEventListener('click',   () => setViewMode('split'));
+viewBtns.preview.addEventListener('click', () => setViewMode('preview'));
+viewBtns.terminal.addEventListener('click', () => setViewMode('terminal'));
 
 // ========== 主題切換 ==========
-const THEME_LABELS = {
-    vue: 'Vue 綠',
-    notion: 'Notion 風',
-    'github-dark': 'GitHub Dark',
-    'catppuccin-mocha': 'Catppuccin',
-    'tokyo-night': 'Tokyo Night',
-    'solarized-light': 'Solarized',
-};
+const THEME_LABELS = { vue: 'Vue 綠', notion: 'Notion 風', 'github-dark': 'GitHub Dark' };
 const LS_THEME = 'md_theme';
 const themeSelectBtn = document.getElementById('themeSelectBtn');
 const themeLabel = document.getElementById('themeLabel');
@@ -1549,7 +1541,7 @@ function applyTheme(theme) {
             btn.classList.toggle('text-emerald-700', btn.dataset.theme === theme);
         });
     }
-    const mermaidTheme = ['github-dark', 'catppuccin-mocha', 'tokyo-night'].includes(theme) ? 'dark' : theme === 'notion' ? 'neutral' : 'default';
+    const mermaidTheme = theme === 'github-dark' ? 'dark' : theme === 'notion' ? 'neutral' : 'default';
     mermaid.initialize({ startOnLoad: false, theme: mermaidTheme, securityLevel: 'loose' });
     updateVditorAppearance();
 }
@@ -1667,24 +1659,6 @@ function insertLine(prefix, placeholder='文字') {
     commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
     scheduleAutoSave();
 }
-function setHeadingLevel(level) {
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    const blockStart = editor.value.lastIndexOf('\n', start - 1) + 1;
-    const nextLine = editor.value.indexOf('\n', end);
-    const blockEnd = nextLine === -1 ? editor.value.length : nextLine;
-    const selectedLines = editor.value.slice(blockStart, blockEnd).split('\n');
-    const prefix = level > 0 ? '#'.repeat(level) + ' ' : '';
-    const replacement = selectedLines.map((line, index) => {
-        const content = line.replace(/^(\s{0,3})#{1,6}\s+/, '$1');
-        if (!content && selectedLines.length === 1 && index === 0 && level > 0) return prefix + '標題';
-        return content ? prefix + content : content;
-    }).join('\n');
-    editor.setRangeText(replacement, blockStart, blockEnd, 'select');
-    editor.focus();
-    commitEditorContentChange({ syncTab: true, syncVditor: true, refreshPreview: true, markModified: true });
-    scheduleAutoSave();
-}
 const TOOLBAR_ACTIONS = {
     bold:      () => wrapSelection('**', '**', '粗體文字'),
     italic:    () => wrapSelection('*', '*', '斜體文字'),
@@ -1724,16 +1698,10 @@ mdToolbar.addEventListener('click', e => {
     const btn = e.target.closest('[data-action]');
     if (btn) TOOLBAR_ACTIONS[btn.dataset.action]?.();
 });
-headingSelect?.addEventListener('change', () => {
-    if (headingSelect.value === '') return;
-    setHeadingLevel(Number(headingSelect.value));
-    headingSelect.value = '';
-});
 
 function prepareEditorSearch() {
-    if (isVditorActive()) {
-        vditorInstance?.focus();
-        return;
+    if (visiblePanels.has('preview') && !visiblePanels.has('editor')) {
+        setViewMode('split');
     }
     editor.focus();
 }
@@ -1782,6 +1750,10 @@ document.addEventListener('keydown', e => {
         e.preventDefault();
         prepareEditorSearch();
         openSearchPanel({ showReplace: true });
+    }
+    if (e.key === 'Escape' && gitFloatingOpen) {
+        e.preventDefault();
+        closeGitFloatingPanel();
     }
 });
 
@@ -2009,7 +1981,8 @@ async function openFile(filePath, options = {}) {
             } else {
                 await refreshActiveTabView();
             }
-                    if (!silent) showSaveToast('已切換到 ' + pathBasename(filePath));
+            await refreshGitState({ quiet: true });
+            if (!silent) showSaveToast('已切換到 ' + pathBasename(filePath));
             return;
         }
 
@@ -2041,7 +2014,8 @@ async function openFile(filePath, options = {}) {
             treeState.expanded.add(currentFolderPath);
         }
         await refreshActiveTabView();
-            if (!silent) showSaveToast('已開啟 ' + pathBasename(filePath));
+        await refreshGitState({ quiet: true });
+        if (!silent) showSaveToast('已開啟 ' + pathBasename(filePath));
     } catch (e) {
         console.error('開啟檔案失敗:', e);
         showSaveToast('開啟失敗');
@@ -2113,7 +2087,8 @@ async function saveCurrentFile() {
             await window.electronAPI.watchCurrentFile(currentFilePath);
             showSaveToast('已儲存');
             setModified(false);
-                } else {
+            await refreshGitState({ quiet: true });
+        } else {
             showSaveToast('儲存失敗: ' + result.error);
         }
     } catch (e) {
@@ -2242,7 +2217,9 @@ async function activateVditorPreview() {
         await ensureVditor();
         syncVditorFromEditor();
         updateVditorAppearance();
-        requestAnimationFrame(() => vditorInstance?.focus());
+        if (!visiblePanels.has('editor')) {
+            requestAnimationFrame(() => vditorInstance?.focus());
+        }
     } catch (err) {
         console.error('Vditor 初始化失敗:', err);
         updatePreviewSurfaceVisibility(false);
@@ -2933,36 +2910,25 @@ async function exportWordDocument(filename) {
 }
 
 // ========== PDF 匯出 ==========
-function getPdfPageDimensions(format, orientation) {
-    const dimensions = {
-        a4: [210, 297],
-        letter: [215.9, 279.4],
-        a3: [297, 420],
-    }[format] || [210, 297];
-    return orientation === 'landscape'
-        ? { widthMM: dimensions[1], heightMM: dimensions[0] }
-        : { widthMM: dimensions[0], heightMM: dimensions[1] };
-}
-
 exportPdfBtn.addEventListener('click', async () => {
     const filename    = (document.getElementById('pdf-filename').value.trim() || 'Document') + '.pdf';
     const orientation = document.querySelector('input[name="pdf-orient"]:checked')?.value || 'portrait';
     const marginVal   = parseInt(document.querySelector('input[name="pdf-margin"]:checked')?.value || '15');
     const format      = document.querySelector('input[name="pdf-size"]:checked')?.value || 'a4';
-    const saveDialog = await window.electronAPI.showSaveDialog({ defaultPath: filename });
-    if (saveDialog.canceled) return;
     exportPdfBtn.disabled = true;
     exportPdfBtn.textContent = '匯出中...';
     statusText.textContent = '正在產生 PDF...';
     const pdfBtnHtml = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> 匯出 PDF`;
-    const { widthMM: pageWidthMM } = getPdfPageDimensions(format, orientation);
+    const fmtW = { a4: 210, letter: 215.9, a3: 297 };
+    const fmtH = { a4: 297, letter: 279.4, a3: 420 };
+    const pageWidthMM   = orientation === 'landscape' ? (fmtH[format] || 297) : (fmtW[format] || 210);
     const contentWidthPx = Math.floor((pageWidthMM - marginVal * 2) * 96 / 25.4);
     let exportWrapper = null;
     try {
         const snapshot = await createExportSnapshot(contentWidthPx);
         exportWrapper = snapshot.exportWrapper;
         const exportEl = snapshot.exportEl;
-        exportEl.querySelectorAll('h1, h2, h3, h4, h5, h6, blockquote, .code-block-wrapper, .mermaid-wrapper').forEach(el => {
+        exportEl.querySelectorAll('h1, h2, h3, h4, h5, h6, blockquote, .code-block-wrapper, table, .mermaid-wrapper').forEach(el => {
             el.style.pageBreakInside = 'avoid';
             el.style.breakInside = 'avoid';
         });
@@ -2970,17 +2936,16 @@ exportPdfBtn.addEventListener('click', async () => {
             el.style.pageBreakAfter = 'avoid';
             el.style.breakAfter = 'avoid';
         });
-        if (document.fonts?.ready) await document.fonts.ready;
-        const pdfResult = await window.electronAPI.renderPdf({
-            html: exportEl.outerHTML,
-            format,
-            orientation,
-            marginMM: marginVal,
-            theme: document.documentElement.getAttribute('data-theme') || 'vue',
-        });
-        if (!pdfResult?.success) throw new Error(pdfResult?.error || 'PDF 產生失敗');
-        const saveResult = await window.electronAPI.saveExportFile(saveDialog.filePath, pdfResult.data);
-        if (!saveResult?.success) throw new Error(saveResult?.error || 'PDF 儲存失敗');
+        const opt = {
+            margin:      [marginVal, marginVal, marginVal, marginVal],
+            filename,
+            image:       { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff', logging: false },
+            jsPDF:       { unit: 'mm', format, orientation },
+            pagebreak:   { mode: ['css', 'legacy'], avoid: ['.code-block-wrapper', 'table', '.mermaid-wrapper', 'blockquote'] }
+        };
+        const pdfBlob = await html2pdf().set(opt).from(exportEl).outputPdf('blob');
+        await downloadBlob(pdfBlob, filename);
         pdfPanel.classList.remove('open');
         showSaveToast('PDF 匯出完成');
     } catch(err) {
@@ -3152,20 +3117,24 @@ async function handleWatchedFileChange(filePath, reason = 'change') {
     if (reason === 'delete') {
         renderTabs();
         showSaveToast(`${tab.title} 已在外部刪除`);
-            return;
+        await refreshGitState({ quiet: true });
+        return;
     }
 
     if (tab.id !== activeTabId) {
         renderTabs();
         showSaveToast(`${tab.title} 已在外部更新`);
-            return;
+        await refreshGitState({ quiet: true });
+        return;
     }
 
     if (!isTextLikeTab(tab)) {
         await reloadCurrentFileFromDisk({ notify: true });
-            return;
+        await refreshGitState({ quiet: true });
+        return;
     }
     await reloadCurrentFileFromDisk({ notify: true });
+    await refreshGitState({ quiet: true });
 }
 
 terminalCloseBtn.addEventListener('click', () => {
@@ -3241,6 +3210,7 @@ async function initializeApp() {
     ensureAtLeastOneTab();
     await refreshActiveTabView();
     await renderSidebar();
+    await refreshGitState({ quiet: true });
     renderTerminalStatus({ running: false, cwd: getTerminalWorkingDir(), error: null });
     updateTerminalActionButtons();
 }
@@ -3658,58 +3628,3 @@ replaceAllBtn.addEventListener('click', replaceAll);
 // 綁定 IPC 選單事件
 window.electronAPI.onMenuFind(() => openSearchPanel({ showReplace: false }));
 window.electronAPI.onMenuReplace(() => openSearchPanel({ showReplace: true }));
-
-// ========== window.shenmd API（給新模組使用） ==========
-window.shenmd = {
-  getEditor: () => editor,
-  getActiveTab: () => getActiveTab(),
-  getTabs: () => tabs.slice(),
-  getCurrentFolder: () => currentFolderPath || currentDirPath,
-  getCurrentFilePath: () => currentFilePath,
-  getCurrentDirPath: () => currentDirPath,
-  getCurrentFileType: () => currentFileType,
-  updateTabModifiedUI: () => {
-    if (typeof updateTabBar === 'function') updateTabBar();
-    if (typeof updateSaveButton === 'function') updateSaveButton();
-  },
-  openFileInTab: (filePath) => {
-    if (typeof openFile === 'function') return openFile(filePath);
-  },
-};
-
-// 把 editor 內容變更事件轉成 bus event 給模組用
-(function setupModuleBus() {
-    if (!editor) return;
-    const emitChanged = () => {
-        if (window.shenmdBus) window.shenmdBus.emit('editor:changed');
-    };
-    editor.addEventListener('input', emitChanged);
-})();
-
-// 全域搜尋跳轉：開啟檔案並跳到指定行
-if (window.shenmdBus) {
-    window.shenmdBus.on('globalSearch:jump', async (hit) => {
-        if (!hit?.filePath) return;
-        try {
-            // 開啟檔案
-            if (window.shenmd?.openFileInTab) {
-                await window.shenmd.openFileInTab(hit.filePath);
-            }
-            // 等待 editor 更新後跳行
-            setTimeout(() => {
-                const ed = window.shenmd?.getEditor?.();
-                if (!ed) return;
-                const lines = ed.value.split('\n');
-                const targetLine = Math.max(0, Math.min(hit.line - 1, lines.length - 1));
-                let pos = 0;
-                for (let i = 0; i < targetLine; i++) pos += lines[i].length + 1;
-                ed.focus();
-                ed.setSelectionRange(pos, pos + (lines[targetLine]?.length || 0));
-                const lineHeight = parseFloat(getComputedStyle(ed).lineHeight) || 22;
-                ed.scrollTop = Math.max(0, (targetLine - 5) * lineHeight);
-            }, 120);
-        } catch (e) {
-            console.error('[global-search jump]', e);
-        }
-    });
-}

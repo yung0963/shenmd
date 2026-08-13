@@ -13,12 +13,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Directory
   readDir: (dirPath) => ipcRenderer.invoke('read-dir', dirPath),
   statPath: (targetPath) => ipcRenderer.invoke('stat-path', targetPath),
-  createFile: (parentPath, name) => ipcRenderer.invoke('create-file', parentPath, name),
-  createFolder: (parentPath, name) => ipcRenderer.invoke('create-folder', parentPath, name),
-  moveFile: (sourcePath, destinationDir) => ipcRenderer.invoke('move-file', sourcePath, destinationDir),
-  copyFile: (sourcePath, destinationDir) => ipcRenderer.invoke('copy-file', sourcePath, destinationDir),
-  deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
-  deleteFolder: (folderPath) => ipcRenderer.invoke('delete-folder', folderPath),
 
   // Paths
   getAppPaths: () => ipcRenderer.invoke('get-app-paths'),
@@ -36,11 +30,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pathBasename: (filePath) => ipcRenderer.invoke('path-basename', filePath),
   pathJoin: (...segments) => ipcRenderer.invoke('path-join', ...segments),
   pathResolve: (...segments) => ipcRenderer.invoke('path-resolve', ...segments),
+  gitGetContext: (targetPath) => ipcRenderer.invoke('git:get-context', targetPath),
+  gitInitRepo: (targetPath) => ipcRenderer.invoke('git:init-repo', targetPath),
+  gitCommit: (repoRoot, message) => ipcRenderer.invoke('git:commit', repoRoot, message),
+  gitPush: (repoRoot) => ipcRenderer.invoke('git:push', repoRoot),
+  gitRestorePath: (repoRoot, targetPath) => ipcRenderer.invoke('git:restore-path', repoRoot, targetPath),
+  gitRestoreAll: (repoRoot) => ipcRenderer.invoke('git:restore-all', repoRoot),
 
   // Binary I/O
   readFileBinary: (filePath) => ipcRenderer.invoke('read-file-binary', filePath),
   saveExportFile: (filePath, base64Data) => ipcRenderer.invoke('save-export-file', filePath, base64Data),
-  renderPdf: (options) => ipcRenderer.invoke('render-pdf', options),
 
   // Clipboard
   readClipboardImage: () => ipcRenderer.invoke('read-clipboard-image'),
@@ -55,10 +54,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   terminalRestart: (options) => ipcRenderer.invoke('terminal:restart', options),
   terminalSendCommand: (text, options) => ipcRenderer.invoke('terminal:send-command', text, options),
   terminalUpdateContext: (context) => ipcRenderer.invoke('terminal:update-context', context),
-
-  // 新功能
-  globalSearch: (options) => ipcRenderer.invoke('global-search', options),
-  terminalRunCommand: (command, options) => ipcRenderer.invoke('terminal:run-command', command, options),
 
   // Events from main
   onOpenFile: (callback) => ipcRenderer.on('open-file', (event, filePath) => callback(filePath)),
